@@ -22,17 +22,23 @@ app.use(express.json());
 // Достаём VK access token из заголовка запроса
 function extractAccessToken(req: express.Request): string {
   const headerAuth = req.headers['authorization'];
+  const headerToken = req.headers['x-vk-access-token'];
+
+  console.log('Attempting to extract VK access token:');
+  console.log('  Authorization header:', headerAuth);
+  console.log('  x-vk-access-token header:', headerToken);
+
   if (typeof headerAuth === 'string' && headerAuth.toLowerCase().startsWith('bearer ')) {
-    const token = headerAuth.slice(7).trim();
-    if (token) return token;
+    console.log('Token found in Authorization header.');
+    return headerAuth.slice(7).trim();
   }
 
-  const headerToken = req.headers['x-vk-access-token'] || req.headers['x-access-token'];
-  if (typeof headerToken === 'string' && headerToken.trim()) {
+  if (typeof headerToken === 'string') {
+    console.log('Token found in x-vk-access-token header.');
     return headerToken.trim();
   }
 
-  throw new Error('VK access token required in Authorization header (Bearer <token>)');
+  throw new Error('VK access token required in Authorization header (Bearer <token>) or x-vk-access-token header');
 }
 
 // Создание VK API клиента

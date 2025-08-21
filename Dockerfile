@@ -6,8 +6,8 @@ WORKDIR /app
 COPY package*.json ./
 COPY tsconfig.json ./
 
-# Установка зависимостей
-RUN npm ci --only=production
+# Установка ВСЕХ зависимостей (включая dev для сборки)
+RUN npm ci
 
 # Копирование исходного кода
 COPY src/ ./src/
@@ -42,5 +42,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3000/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
 
-# Запуск приложения
-CMD ["npm", "run", "start:http"]
+# Запуск приложения (исправлено на start:make)
+CMD ["npm", "run", "start:make"]

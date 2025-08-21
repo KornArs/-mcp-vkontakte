@@ -368,6 +368,31 @@ app.get('/', (req, res) => {
   });
 });
 
+// MCP Discovery endpoint для Make.com (корневой путь)
+app.post('/', (req, res) => {
+  res.json({
+    type: 'mcp_discovery',
+    name: 'vkontakte-mcp-server',
+    version: '1.0.0',
+    description: 'MCP server for VKontakte (VK.com) integration',
+    transport: 'SSE + HTTP',
+    capabilities: ['tools'],
+    endpoints: {
+      sse: '/mcp/sse',
+      api: '/mcp/api',
+      health: '/health',
+      info: '/mcp/info'
+    },
+    tools: [
+      'post_to_wall',
+      'get_wall_posts', 
+      'search_posts',
+      'get_group_info',
+      'get_user_info'
+    ]
+  });
+});
+
 // Информация о MCP сервере
 app.get('/mcp/info', (req, res) => {
   res.json({

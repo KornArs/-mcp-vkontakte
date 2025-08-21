@@ -191,9 +191,29 @@ app.post('/mcp/api', async (req, res) => {
   try {
     const { method, params, id } = req.body;
     
+    console.log('Incoming POST /mcp/api request.');
+    console.log('  Method:', method);
+    console.log('  Request ID:', id);
+    console.log('  Headers:', req.headers); // Логируем все заголовки
+
     if (method === 'tools/call') {
       const { name, arguments: args } = params;
-      const vkApi = createVKApi(req);
+      let vkApi;
+      try {
+        vkApi = createVKApi(req);
+        console.log('VK API client created successfully.');
+      } catch (tokenError) {
+        console.error('Error creating VK API client:', tokenError); // Логируем ошибку создания клиента
+        res.status(401).json({
+          jsonrpc: '2.0',
+          id: id,
+          error: {
+            code: -32000, // Invalid Request
+            message: `Authentication failed: ${tokenError instanceof Error ? tokenError.message : 'Unknown error'}`,
+          }
+        });
+        return;
+      }
 
       let result;
       switch (name) {

@@ -45,13 +45,27 @@ function createVKApi(req: express.Request) {
 
 // MCP SSE endpoint для Make.com
 app.get('/mcp/sse', (req, res) => {
-  console.log('Client connected to SSE'); // Добавлено логирование
+  console.log('Client connected to SSE');
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
-  // Отправляем информацию о сервере
+  // Отправляем информацию о сервере в JSON-RPC формате
+  res.write(`data: ${JSON.stringify({
+    jsonrpc: '2.0',
+    id: null, // Для уведомлений id может быть null
+    method: 'notifications/serverInfo',
+    params: {
+      name: 'vkontakte-mcp-server',
+      version: '1.0.0',
+      description: 'MCP server for VKontakte (VK.com) integration',
+      transport: 'SSE + HTTP',
+      capabilities: ['tools']
+    }
+  })}\n\n`);
+
+  // Отправляем информацию об инструментах в JSON-RPC формате
   const tools = [
     {
       name: 'post_to_wall',
@@ -156,16 +170,19 @@ app.get('/mcp/sse', (req, res) => {
     },
   ];
 
-  res.write(`data: ${JSON.stringify({
-    type: 'server_info',
-    name: 'vkontakte-mcp-server',
-    version: '1.0.0',
-    description: 'MCP server for VKontakte (VK.com) integration',
-    tools: tools.map(tool => tool.name),
-  })}\n\n`);
+  tools.forEach(tool => {
+    res.write(`data: ${JSON.stringify({
+      jsonrpc: '2.0',
+      id: null, // Для уведомлений id может быть null
+      method: 'notifications/toolInfo',
+      params: {
+        tool: tool
+      }
+    })}\n\n`);
+  });
 
   req.on('close', () => {
-    console.log('Client disconnected from SSE'); // Добавлено логирование
+    console.log('Client disconnected from SSE');
   });
 });
 
@@ -443,6 +460,13 @@ app.post('/', (req, res) => {
           }
         ]
       }
+    });
+  } else if (method === 'notifications/initialized') {
+    // Make.com отправляет это как уведомление, ответ не требуется, но отправим успешный
+    res.json({
+      jsonrpc: '2.0',
+      id: id,
+      result: {}
     });
   } else {
     res.status(400).json({

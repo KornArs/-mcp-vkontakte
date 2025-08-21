@@ -1,9 +1,6 @@
 import express from 'express';
 import cors from 'cors';
 import { VKApi } from './vk-api.js';
-import dotenv from 'dotenv';
-
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -16,8 +13,8 @@ app.use(cors({
 
 app.use(express.json());
 
-// Достаём VK access token из запроса или ENV
-function extractAccessToken(req: express.Request): string | undefined {
+// Достаём VK access token из заголовка запроса
+function extractAccessToken(req: express.Request): string {
   const headerAuth = req.headers['authorization'];
   if (typeof headerAuth === 'string' && headerAuth.toLowerCase().startsWith('bearer ')) {
     const token = headerAuth.slice(7).trim();
@@ -29,17 +26,13 @@ function extractAccessToken(req: express.Request): string | undefined {
     return headerToken.trim();
   }
 
-  return process.env.VK_ACCESS_TOKEN;
+  throw new Error('VK access token required in Authorization header (Bearer <token>)');
 }
 
 // Создание VK API клиента
 function createVKApi(req: express.Request) {
   const accessToken = extractAccessToken(req);
-  const apiVersion = process.env.VK_API_VERSION || '5.131';
-
-  if (!accessToken) {
-    throw new Error('VK access token is required (Authorization: Bearer <token> or VK_ACCESS_TOKEN env)');
-  }
+  const apiVersion = '5.199'; // Захардкоженная версия API
 
   return new VKApi(accessToken, apiVersion);
 }

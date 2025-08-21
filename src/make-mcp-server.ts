@@ -5,6 +5,12 @@ import { VKApi } from './vk-api.js';
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Логируем переменные окружения для отладки Railway
+console.log('🔧 Environment variables:');
+console.log('  PORT:', process.env.PORT);
+console.log('  NODE_ENV:', process.env.NODE_ENV);
+console.log('  Using PORT:', PORT);
+
 // CORS для Make.com
 app.use(cors({
   origin: ['https://www.make.com', 'https://*.make.com'],

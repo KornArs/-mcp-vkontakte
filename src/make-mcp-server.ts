@@ -43,17 +43,15 @@ function createVKApi(req: express.Request) {
   return new VKApi(accessToken, apiVersion);
 }
 
-// SSE endpoint для Make.com MCP Client
+// MCP SSE endpoint для Make.com
 app.get('/mcp/sse', (req, res) => {
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-    'Access-Control-Allow-Origin': 'https://www.make.com',
-    'Access-Control-Allow-Credentials': 'true',
-  });
+  console.log('Client connected to SSE'); // Добавлено логирование
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
 
-  // Отправляем информацию о доступных инструментах
+  // Отправляем информацию о сервере
   const tools = [
     {
       name: 'post_to_wall',
@@ -61,28 +59,11 @@ app.get('/mcp/sse', (req, res) => {
       inputSchema: {
         type: 'object',
         properties: {
-          message: {
-            type: 'string',
-            description: 'Текст поста для публикации',
-            required: true,
-          },
-          group_id: {
-            type: 'string',
-            description: 'ID группы (для публикации в группе)',
-          },
-          user_id: {
-            type: 'string',
-            description: 'ID пользователя (для публикации в профиле)',
-          },
-          attachments: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Массив вложений (ссылки на медиа)',
-          },
-          publish_date: {
-            type: 'number',
-            description: 'Время публикации (Unix timestamp)',
-          },
+          message: { type: 'string', description: 'Текст поста' },
+          group_id: { type: 'string', description: 'ID группы' },
+          user_id: { type: 'string', description: 'ID пользователя' },
+          attachments: { type: 'array', items: { type: 'string' }, description: 'Массив вложений (ссылки на медиа)' },
+          publish_date: { type: 'number', description: 'Время публикации (Unix timestamp)' }
         },
         required: ['message'],
       },
@@ -175,7 +156,6 @@ app.get('/mcp/sse', (req, res) => {
     },
   ];
 
-  // Отправляем информацию о сервере
   res.write(`data: ${JSON.stringify({
     type: 'server_info',
     name: 'vkontakte-mcp-server',
@@ -184,21 +164,8 @@ app.get('/mcp/sse', (req, res) => {
     tools: tools.map(tool => tool.name),
   })}\n\n`);
 
-  // Отправляем информацию об инструментах
-  tools.forEach(tool => {
-    res.write(`data: ${JSON.stringify({
-      type: 'tool_info',
-      tool: tool,
-    })}\n\n`);
-  });
-
-  // Keep connection alive
-  const interval = setInterval(() => {
-    res.write('data: {"type": "ping"}\n\n');
-  }, 30000);
-
   req.on('close', () => {
-    clearInterval(interval);
+    console.log('Client disconnected from SSE'); // Добавлено логирование
   });
 });
 
@@ -388,7 +355,9 @@ app.get('/', (req, res) => {
 // MCP Discovery endpoint для Make.com (корневой путь) - JSON-RPC 2.0
 app.post('/', (req, res) => {
   const { id, method } = req.body;
-  
+
+  console.log(`Incoming POST / request. Method: ${method}`); // Добавлено логирование
+
   if (method === 'initialize') {
     res.json({
       jsonrpc: '2.0',

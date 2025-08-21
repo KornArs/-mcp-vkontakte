@@ -373,12 +373,12 @@ app.get('/mcp/info', (req, res) => {
 });
 
 // Запуск сервера
-app.listen(PORT, () => {
+app.listen(Number(PORT), '0.0.0.0', () => {
   console.log(`🚀 VKontakte MCP Server для Make.com запущен на порту ${PORT}`);
-  console.log(`📡 SSE endpoint: http://localhost:${PORT}/mcp/sse`);
-  console.log(`🔧 API endpoint: http://localhost:${PORT}/mcp/api`);
-  console.log(`🏥 Health check: http://localhost:${PORT}/health`);
-  console.log(`ℹ️  MCP info: http://localhost:${PORT}/mcp/info`);
+  console.log(`📡 SSE endpoint: http://0.0.0.0:${PORT}/mcp/sse`);
+  console.log(`🔧 API endpoint: http://0.0.0.0:${PORT}/mcp/api`);
+  console.log(`🏥 Health check: http://0.0.0.0:${PORT}/health`);
+  console.log(`ℹ️  MCP info: http://0.0.0.0:${PORT}/mcp/info`);
 });
 
 // Graceful shutdown

@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "vkontakte": {
+      "command": "node",
+      "args": ["E:\\Новая папка (3)\\dist\\index.js"],
+      "description": "MCP server for VKontakte (VK.com) integration",
+      "disabled": false,
+      "env": {
+        "VK_ACCESS_TOKEN": "your_vk_access_token_here",
+        "VK_API_VERSION": "5.131",
+        "VK_GROUP_ID": "your_group_id_here"
+      }
+    }
+  }
+}

@@ -202,12 +202,12 @@ app.get('/mcp/sse', (req, res) => {
   });
 });
 
-// MCP API endpoint для Make.com
+// MCP API endpoint для Make.com - JSON-RPC 2.0
 app.post('/mcp/api', async (req, res) => {
   try {
     const { method, params, id } = req.body;
     
-    if (method === 'callTool') {
+    if (method === 'tools/call') {
       const { name, arguments: args } = params;
       const vkApi = createVKApi(req);
 
@@ -223,7 +223,8 @@ app.post('/mcp/api', async (req, res) => {
           });
           
           res.json({
-            success: true,
+            jsonrpc: '2.0',
+            id: id,
             result: {
               post_id: result.post_id,
               message: 'Пост успешно опубликован!',
@@ -243,7 +244,8 @@ app.post('/mcp/api', async (req, res) => {
           });
           
           res.json({
-            success: true,
+            jsonrpc: '2.0',
+            id: id,
             result: {
               count: result.count,
               posts: result.items.map(post => ({
@@ -269,7 +271,8 @@ app.post('/mcp/api', async (req, res) => {
           });
           
           res.json({
-            success: true,
+            jsonrpc: '2.0',
+            id: id,
             result: {
               count: result.count,
               posts: result.items.map(post => ({
@@ -290,7 +293,8 @@ app.post('/mcp/api', async (req, res) => {
           const group = result[0];
           
           res.json({
-            success: true,
+            jsonrpc: '2.0',
+            id: id,
             result: {
               id: group.id,
               name: group.name,
@@ -307,7 +311,8 @@ app.post('/mcp/api', async (req, res) => {
           const user = result[0];
           
           res.json({
-            success: true,
+            jsonrpc: '2.0',
+            id: id,
             result: {
               id: user.id,
               first_name: user.first_name,
@@ -321,22 +326,34 @@ app.post('/mcp/api', async (req, res) => {
 
         default:
           res.status(400).json({
-            success: false,
-            error: `Unknown tool: ${name}`
+            jsonrpc: '2.0',
+            id: id,
+            error: {
+              code: -32601,
+              message: `Unknown tool: ${name}`
+            }
           });
           return;
       }
     } else {
       res.status(400).json({
-        success: false,
-        error: `Unknown method: ${method}`
+        jsonrpc: '2.0',
+        id: id,
+        error: {
+          code: -32601,
+          message: `Unknown method: ${method}`
+        }
       });
     }
   } catch (error) {
     console.error('Error in MCP API:', error);
     res.status(500).json({
-      success: false,
-      error: error instanceof Error ? error.message : 'Неизвестная ошибка',
+      jsonrpc: '2.0',
+      id: req.body.id,
+      error: {
+        code: -32603,
+        message: error instanceof Error ? error.message : 'Неизвестная ошибка'
+      }
     });
   }
 });
@@ -368,29 +385,106 @@ app.get('/', (req, res) => {
   });
 });
 
-// MCP Discovery endpoint для Make.com (корневой путь)
+// MCP Discovery endpoint для Make.com (корневой путь) - JSON-RPC 2.0
 app.post('/', (req, res) => {
-  res.json({
-    type: 'mcp_discovery',
-    name: 'vkontakte-mcp-server',
-    version: '1.0.0',
-    description: 'MCP server for VKontakte (VK.com) integration',
-    transport: 'SSE + HTTP',
-    capabilities: ['tools'],
-    endpoints: {
-      sse: '/mcp/sse',
-      api: '/mcp/api',
-      health: '/health',
-      info: '/mcp/info'
-    },
-    tools: [
-      'post_to_wall',
-      'get_wall_posts', 
-      'search_posts',
-      'get_group_info',
-      'get_user_info'
-    ]
-  });
+  const { id, method } = req.body;
+  
+  if (method === 'initialize') {
+    res.json({
+      jsonrpc: '2.0',
+      id: id,
+      result: {
+        protocolVersion: '2024-11-05',
+        capabilities: {
+          tools: {}
+        },
+        serverInfo: {
+          name: 'vkontakte-mcp-server',
+          version: '1.0.0'
+        }
+      }
+    });
+  } else if (method === 'tools/list') {
+    res.json({
+      jsonrpc: '2.0',
+      id: id,
+      result: {
+        tools: [
+          {
+            name: 'post_to_wall',
+            description: 'Публикует пост на стену пользователя или группы ВКонтакте',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                message: { type: 'string', description: 'Текст поста' },
+                group_id: { type: 'string', description: 'ID группы' },
+                user_id: { type: 'string', description: 'ID пользователя' }
+              },
+              required: ['message']
+            }
+          },
+          {
+            name: 'get_wall_posts',
+            description: 'Получает посты со стены',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                group_id: { type: 'string' },
+                user_id: { type: 'string' },
+                count: { type: 'number', default: 20 },
+                offset: { type: 'number', default: 0 }
+              }
+            }
+          },
+          {
+            name: 'search_posts',
+            description: 'Ищет посты по ключевому слову',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                query: { type: 'string', description: 'Поисковый запрос' },
+                group_id: { type: 'string' },
+                count: { type: 'number', default: 20 },
+                offset: { type: 'number', default: 0 }
+              },
+              required: ['query']
+            }
+          },
+          {
+            name: 'get_group_info',
+            description: 'Получает информацию о группе',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                group_id: { type: 'string', description: 'ID группы' }
+              },
+              required: ['group_id']
+            }
+          },
+          {
+            name: 'get_user_info',
+            description: 'Получает информацию о пользователе',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                user_id: { type: 'string', description: 'ID пользователя' }
+              },
+              required: ['user_id']
+            }
+          }
+        ]
+      }
+    });
+  } else {
+    res.status(400).json({
+      jsonrpc: '2.0',
+      id: id,
+      error: {
+        code: -32601,
+        message: 'Method not found'
+      }
+    });
+  }
 });
 
 // Информация о MCP сервере

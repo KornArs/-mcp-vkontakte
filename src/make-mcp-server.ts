@@ -351,7 +351,20 @@ app.get('/health', (req, res) => {
     mcp_endpoints: {
       sse: '/mcp/sse',
       api: '/mcp/api',
-    }
+    },
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    port: PORT
+  });
+});
+
+// Startup probe для Railway
+app.get('/', (req, res) => {
+  res.json({
+    status: 'ready',
+    message: 'VKontakte MCP Server is running',
+    timestamp: new Date().toISOString(),
+    port: PORT
   });
 });
 

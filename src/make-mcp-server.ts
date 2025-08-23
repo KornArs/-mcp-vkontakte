@@ -81,9 +81,9 @@ function sendErr(res: express.Response, httpStatus: number, code: string | numbe
   res.status(httpStatus).json({ success: false, error: { code, message } });
 }
 
-// MCP SSE endpoint для Make.com
-app.get('/mcp/sse', (req, res) => {
-  console.log('Client connected to SSE');
+// Общая функция запуска SSE-потока (без редиректов)
+function startSSE(res: express.Response, label: string) {
+  console.log(`Client connected to SSE (${label})`);
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
@@ -92,7 +92,7 @@ app.get('/mcp/sse', (req, res) => {
   // Отправляем информацию о сервере в JSON-RPC формате
   res.write(`data: ${JSON.stringify({
     jsonrpc: '2.0',
-    id: null, // Для уведомлений id может быть null
+    id: null,
     method: 'notifications/serverInfo',
     params: {
       name: 'vkontakte-mcp-server',
@@ -103,7 +103,7 @@ app.get('/mcp/sse', (req, res) => {
     }
   })}\n\n`);
 
-  // Отправляем информацию об инструментах в JSON-RPC формате
+  // Полный список инструментов (17)
   const tools = [
     {
       name: 'post_to_wall',
@@ -325,22 +325,26 @@ app.get('/mcp/sse', (req, res) => {
   tools.forEach(tool => {
     res.write(`data: ${JSON.stringify({
       jsonrpc: '2.0',
-      id: null, // Для уведомлений id может быть null
+      id: null,
       method: 'notifications/toolInfo',
-      params: {
-        tool: tool
-      }
+      params: { tool }
     })}\n\n`);
   });
 
-  // Keepalive пинги каждые 30 секунд
   const keepalive = setInterval(() => {
     res.write(':keepalive\n\n');
   }, 30000);
 
+  // Вернём функцию очистки, чтобы внешние обработчики могли отписаться
+  return () => clearInterval(keepalive);
+}
+
+// MCP SSE endpoint для Make.com
+app.get('/mcp/sse', (req, res) => {
+  const stop = startSSE(res, '/mcp/sse');
   req.on('close', () => {
-    clearInterval(keepalive);
-    console.log('Client disconnected from SSE');
+    stop();
+    console.log('Client disconnected from SSE (/mcp/sse)');
   });
 });
 
@@ -366,8 +370,11 @@ app.post('/mcp/sse', async (req, res) => {
 
 // SSE алиас для совместимости с HTTP MCP клиентами (Cursor ожидает /sse)
 app.get('/sse', (req, res) => {
-  // Единая точка входа для SSE — перенаправляем на /mcp/sse
-  res.redirect(307, '/mcp/sse');
+  const stop = startSSE(res, '/sse');
+  req.on('close', () => {
+    stop();
+    console.log('Client disconnected from SSE (/sse)');
+  });
 });
 
 // POST обработчик для /sse (Make.com)
@@ -808,7 +815,15 @@ app.get('/health', (req, res) => {
 
 // Startup probe для Railway
 app.get('/', (req, res) => {
-  // Корневой роут — только health/info. SSE доступен на /mcp/sse
+  const accept = String(req.headers['accept'] || '');
+  if (accept.includes('text/event-stream')) {
+    const stop = startSSE(res, '/');
+    req.on('close', () => {
+      stop();
+      console.log('Client disconnected from SSE (/)');
+    });
+    return;
+  }
   res.json({
     status: 'ready',
     message: 'VKontakte MCP Server is running',

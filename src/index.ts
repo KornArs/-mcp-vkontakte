@@ -147,12 +147,169 @@ class VKontakteMCPServer {
               required: ['user_id'],
             },
           },
+          {
+            name: 'get_post_stats',
+            description: 'Получает статистику по посту (wall.getById)',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                owner_id: { type: 'string' },
+                post_id: { type: 'string' },
+              },
+              required: ['owner_id', 'post_id'],
+            },
+          },
+          {
+            name: 'get_wall_by_id',
+            description: 'Получает посты по идентификаторам owner_post,owner_post',
+            inputSchema: {
+              type: 'object',
+              properties: { posts: { type: 'string' } },
+              required: ['posts'],
+            },
+          },
+          {
+            name: 'get_comments',
+            description: 'Получает комментарии к посту',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                owner_id: { type: 'string' },
+                post_id: { type: 'number' },
+                need_likes: { type: 'number' },
+                count: { type: 'number' },
+                offset: { type: 'number' },
+                sort: { type: 'string', enum: ['asc', 'desc'] },
+                preview_length: { type: 'number' },
+              },
+              required: ['owner_id', 'post_id'],
+            },
+          },
+          {
+            name: 'create_comment',
+            description: 'Создаёт комментарий к посту',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                owner_id: { type: 'string' },
+                post_id: { type: 'number' },
+                message: { type: 'string' },
+                attachments: { type: 'array', items: { type: 'string' } },
+                reply_to_comment: { type: 'number' },
+                guid: { type: 'string' },
+              },
+              required: ['owner_id', 'post_id'],
+            },
+          },
+          {
+            name: 'delete_post',
+            description: 'Удаляет пост со стены',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                owner_id: { type: 'string' },
+                post_id: { type: 'number' },
+              },
+              required: ['owner_id', 'post_id'],
+            },
+          },
+          {
+            name: 'edit_post',
+            description: 'Редактирует пост на стене',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                owner_id: { type: 'string' },
+                post_id: { type: 'number' },
+                message: { type: 'string' },
+                attachments: { type: 'array', items: { type: 'string' } },
+              },
+              required: ['owner_id', 'post_id'],
+            },
+          },
+          {
+            name: 'add_like',
+            description: 'Ставит лайк на пост или комментарий',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                type: { type: 'string', enum: ['post', 'comment'] },
+                owner_id: { type: 'string' },
+                item_id: { type: 'number' },
+              },
+              required: ['type', 'owner_id', 'item_id'],
+            },
+          },
+          {
+            name: 'delete_like',
+            description: 'Удаляет лайк с поста или комментария',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                type: { type: 'string', enum: ['post', 'comment'] },
+                owner_id: { type: 'string' },
+                item_id: { type: 'number' },
+              },
+              required: ['type', 'owner_id', 'item_id'],
+            },
+          },
+          {
+            name: 'get_group_members',
+            description: 'Получает участников группы',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                group_id: { type: 'string' },
+                sort: { type: 'string', enum: ['id_asc', 'id_desc', 'time_asc', 'time_desc'] },
+                offset: { type: 'number' },
+                count: { type: 'number' },
+              },
+              required: ['group_id'],
+            },
+          },
+          {
+            name: 'resolve_screen_name',
+            description: 'Определяет объект по screen_name',
+            inputSchema: {
+              type: 'object',
+              properties: { screen_name: { type: 'string' } },
+              required: ['screen_name'],
+            },
+          },
+          {
+            name: 'upload_wall_photo_from_url',
+            description: 'Загружает фото по URL и готовит attachment для стены',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                imageUrl: { type: 'string' },
+                owner_id: { type: 'string' },
+              },
+              required: ['imageUrl'],
+            },
+          },
+          {
+            name: 'upload_video_from_url',
+            description: 'Загружает видео по URL и готовит attachment для стены',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                videoUrl: { type: 'string' },
+                owner_id: { type: 'string' },
+                name: { type: 'string' },
+                description: { type: 'string' },
+              },
+              required: ['videoUrl'],
+            },
+          },
         ],
       };
     });
 
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const { name, arguments: args } = request.params;
+      const { name } = request.params;
+      const rawArgs: unknown = (request.params as any).arguments;
+      const args: any = rawArgs && typeof rawArgs === 'object' ? (rawArgs as any) : {};
 
       try {
         switch (name) {
@@ -251,6 +408,96 @@ class VKontakteMCPServer {
                 },
               ],
             };
+          }
+
+          case 'get_post_stats': {
+            const result = await this.vkApi.getPostStats(String(args.post_id), String(args.owner_id));
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+          }
+
+          case 'get_wall_by_id': {
+            const result = await this.vkApi.getWallById(String(args.posts));
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+          }
+
+          case 'get_comments': {
+            const result = await this.vkApi.getComments({
+              owner_id: String(args.owner_id),
+              post_id: Number(args.post_id),
+              need_likes: typeof args.need_likes === 'number' ? Number(args.need_likes) : undefined,
+              count: typeof args.count === 'number' ? Number(args.count) : undefined,
+              offset: typeof args.offset === 'number' ? Number(args.offset) : undefined,
+              sort: args.sort as 'asc' | 'desc' | undefined,
+              preview_length: typeof args.preview_length === 'number' ? Number(args.preview_length) : undefined,
+            });
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+          }
+
+          case 'create_comment': {
+            const result = await this.vkApi.createComment({
+              owner_id: String(args.owner_id),
+              post_id: Number(args.post_id),
+              message: args.message as string | undefined,
+              attachments: Array.isArray(args.attachments) ? (args.attachments as string[]) : undefined,
+              reply_to_comment: typeof args.reply_to_comment === 'number' ? Number(args.reply_to_comment) : undefined,
+              guid: args.guid as string | undefined,
+            });
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+          }
+
+          case 'delete_post': {
+            const result = await this.vkApi.deletePost({ owner_id: String(args.owner_id), post_id: Number(args.post_id) });
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+          }
+
+          case 'edit_post': {
+            const result = await this.vkApi.editPost({
+              owner_id: String(args.owner_id),
+              post_id: Number(args.post_id),
+              message: args.message as string | undefined,
+              attachments: Array.isArray(args.attachments) ? (args.attachments as string[]) : undefined,
+            });
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+          }
+
+          case 'add_like': {
+            const result = await this.vkApi.addLike({ type: args.type as 'post' | 'comment', owner_id: String(args.owner_id), item_id: Number(args.item_id) });
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+          }
+
+          case 'delete_like': {
+            const result = await this.vkApi.deleteLike({ type: args.type as 'post' | 'comment', owner_id: String(args.owner_id), item_id: Number(args.item_id) });
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+          }
+
+          case 'get_group_members': {
+            const result = await this.vkApi.getGroupMembers({
+              group_id: String(args.group_id),
+              sort: args.sort as 'id_asc' | 'id_desc' | 'time_asc' | 'time_desc' | undefined,
+              offset: typeof args.offset === 'number' ? Number(args.offset) : undefined,
+              count: typeof args.count === 'number' ? Number(args.count) : undefined,
+            });
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+          }
+
+          case 'resolve_screen_name': {
+            const result = await this.vkApi.resolveScreenName(String(args.screen_name));
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+          }
+
+          case 'upload_wall_photo_from_url': {
+            const attachment = await this.vkApi.uploadWallPhotoFromUrl({ imageUrl: String(args.imageUrl), owner_id: args.owner_id as string | undefined });
+            return { content: [{ type: 'text', text: attachment }] };
+          }
+
+          case 'upload_video_from_url': {
+            const attachment = await this.vkApi.uploadVideoFromUrl({
+              videoUrl: String(args.videoUrl),
+              owner_id: args.owner_id as string | undefined,
+              name: args.name as string | undefined,
+              description: args.description as string | undefined,
+            });
+            return { content: [{ type: 'text', text: attachment }] };
           }
 
           default:

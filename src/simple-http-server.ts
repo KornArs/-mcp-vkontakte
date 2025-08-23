@@ -80,6 +80,31 @@ app.post('/test/post', async (req, res) => {
   }
 });
 
+// Список MCP инструментов (для наглядной проверки соответствия)
+app.get('/mcp/tools', (_req, res) => {
+  res.json({
+    tools: [
+      'post_to_wall',
+      'get_wall_posts',
+      'search_posts',
+      'get_group_info',
+      'get_user_info',
+      'get_post_stats',
+      'get_wall_by_id',
+      'get_comments',
+      'create_comment',
+      'delete_post',
+      'edit_post',
+      'add_like',
+      'delete_like',
+      'get_group_members',
+      'resolve_screen_name',
+      'upload_wall_photo_from_url',
+      'upload_video_from_url'
+    ]
+  });
+});
+
 // Тестовый endpoint для получения постов
 app.get('/test/posts', async (req, res) => {
   try {

@@ -20,6 +20,9 @@ app.use(cors({
 
 app.use(express.json());
 
+// Разрешаем preflight для всех маршрутов (см. Express CORS docs)
+app.options('*', cors());
+
 // Достаём VK access token из заголовка запроса
 function extractAccessToken(req: express.Request): string {
   const headerAuth = req.headers['authorization'];
@@ -30,11 +33,13 @@ function extractAccessToken(req: express.Request): string {
     || body?.params?.arguments?.access_token
     || body?.access_token;
 
+  // Маскируем потенциально чувствительные данные в логах
+  const mask = (v: unknown) => (typeof v === 'string' && v.length > 8 ? v.slice(0, 4) + '...' + v.slice(-4) : v ? '<provided>' : '<absent>');
   console.log('Attempting to extract VK access token:');
-  console.log('  Authorization header:', headerAuth);
-  console.log('  x-vk-access-token header:', headerToken);
-  console.log('  query access_token:', queryToken ? '<provided>' : '<absent>');
-  console.log('  body access_token:', bodyToken ? '<provided>' : '<absent>');
+  console.log('  Authorization header:', typeof headerAuth === 'string' ? mask(headerAuth) : '<absent>');
+  console.log('  x-vk-access-token header:', mask(headerToken));
+  console.log('  query access_token:', mask(queryToken));
+  console.log('  body access_token:', mask(bodyToken));
 
   if (typeof headerAuth === 'string' && headerAuth.toLowerCase().startsWith('bearer ')) {
     console.log('Token found in Authorization header.');
@@ -65,6 +70,15 @@ function createVKApi(req: express.Request) {
   const apiVersion = '5.199'; // Захардкоженная версия API
 
   return new VKApi(accessToken, apiVersion);
+}
+
+// Унифицированные ответы для REST (n8n)
+function sendOk(res: express.Response, data: unknown) {
+  res.json({ success: true, data });
+}
+
+function sendErr(res: express.Response, httpStatus: number, code: string | number, message: string) {
+  res.status(httpStatus).json({ success: false, error: { code, message } });
 }
 
 // MCP SSE endpoint для Make.com
@@ -403,6 +417,179 @@ app.post('/sse', async (req, res) => {
   }
 });
 
+// ========== n8n INTEGRATION ==========
+// Webhook endpoint для n8n триггеров/действий
+app.post('/n8n/webhook/:event', async (req, res, next) => {
+  try {
+    const secret = process.env.N8N_WEBHOOK_SECRET;
+    const provided = (req.headers['x-n8n-token'] as string) || (req.query['token'] as string) || '';
+    if (secret && provided !== secret) {
+      return sendErr(res, 401, 'unauthorized', 'Invalid n8n webhook token');
+    }
+
+    const event = String(req.params.event || '').trim();
+
+    let vkApi: VKApi;
+    try {
+      vkApi = createVKApi(req);
+    } catch (err) {
+      return sendErr(res, 401, 'auth_failed', err instanceof Error ? err.message : 'Authentication failed');
+    }
+
+    const body: any = req.body || {};
+
+    switch (event) {
+      case 'post_to_wall': {
+        const ownerId = body.group_id ? `-${body.group_id}` : body.user_id;
+
+        // Поддержка media_urls как в JSON-RPC
+        let attachments: string[] | undefined = body.attachments;
+        const mediaUrls: string[] = [];
+        if (typeof body.media_urls === 'string') mediaUrls.push(body.media_urls);
+        else if (Array.isArray(body.media_urls)) mediaUrls.push(...body.media_urls);
+
+        if (mediaUrls.length > 0) {
+          const uploaded: string[] = [];
+          for (const url of mediaUrls) {
+            const lower = String(url).toLowerCase();
+            if (lower.includes('.mp4') || lower.includes('video')) {
+              const a = await vkApi.uploadVideoFromUrl({ videoUrl: url, owner_id: ownerId });
+              uploaded.push(a);
+            } else {
+              const a = await vkApi.uploadWallPhotoFromUrl({ imageUrl: url, owner_id: ownerId });
+              uploaded.push(a);
+            }
+          }
+          attachments = [...(attachments || []), ...uploaded];
+        }
+
+        const result = await vkApi.postToWall({
+          message: body.message,
+          owner_id: ownerId,
+          attachments,
+          publish_date: body.publish_date,
+        });
+        return sendOk(res, { post_id: result.post_id, owner_id: ownerId });
+      }
+
+      case 'get_wall_posts': {
+        const ownerId = body.group_id ? `-${body.group_id}` : body.user_id;
+        const result = await vkApi.getWallPosts({ owner_id: ownerId, count: body.count || 20, offset: body.offset || 0 });
+        return sendOk(res, {
+          count: result.count,
+          posts: result.items.map(post => ({
+            id: post.id,
+            text: post.text.substring(0, 100) + (post.text.length > 100 ? '...' : ''),
+            date: post.date,
+            likes: post.likes?.count || 0,
+            reposts: post.reposts?.count || 0,
+            comments: post.comments?.count || 0,
+          })),
+        });
+      }
+
+      case 'search_posts': {
+        const ownerId = body.group_id ? `-${body.group_id}` : undefined;
+        const result = await vkApi.searchPosts({ query: body.query, owner_id: ownerId, count: body.count || 20, offset: body.offset || 0 });
+        return sendOk(res, {
+          count: result.count,
+          posts: result.items.map(post => ({
+            id: post.id,
+            text: post.text.substring(0, 100) + (post.text.length > 100 ? '...' : ''),
+            date: post.date,
+            likes: post.likes?.count || 0,
+            reposts: post.reposts?.count || 0,
+            comments: post.comments?.count || 0,
+          })),
+        });
+      }
+
+      case 'get_group_info': {
+        const result = await vkApi.getGroupInfo(body.group_id);
+        const group = result && result[0];
+        if (!group) return sendErr(res, 404, 'not_found', 'Group not found');
+        return sendOk(res, {
+          id: group.id,
+          name: group.name,
+          screen_name: group.screen_name,
+          type: group.type,
+          members_count: group.members_count,
+        });
+      }
+
+      case 'get_user_info': {
+        const result = await vkApi.getUserInfo(body.user_id);
+        const user = result && result[0];
+        if (!user) return sendErr(res, 404, 'not_found', 'User not found');
+        return sendOk(res, {
+          id: user.id,
+          first_name: user.first_name,
+          last_name: user.last_name,
+          screen_name: user.screen_name,
+          photo_100: user.photo_100,
+        });
+      }
+
+      default:
+        return sendErr(res, 400, 'unknown_event', `Unknown event: ${event}`);
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Polling endpoint для n8n
+app.get('/n8n/poll/:resource', async (req, res, next) => {
+  try {
+    let vkApi: VKApi;
+    try {
+      vkApi = createVKApi(req);
+    } catch (err) {
+      return sendErr(res, 401, 'auth_failed', err instanceof Error ? err.message : 'Authentication failed');
+    }
+
+    const resource = String(req.params.resource || '').trim();
+    const q = req.query as any;
+
+    switch (resource) {
+      case 'wall_posts': {
+        const ownerId = q.group_id ? `-${q.group_id}` : q.user_id;
+        const result = await vkApi.getWallPosts({ owner_id: ownerId, count: Number(q.count ?? 20), offset: Number(q.offset ?? 0) });
+        return sendOk(res, {
+          count: result.count,
+          posts: result.items.map(post => ({
+            id: post.id,
+            text: post.text.substring(0, 100) + (post.text.length > 100 ? '...' : ''),
+            date: post.date,
+            likes: post.likes?.count || 0,
+            reposts: post.reposts?.count || 0,
+            comments: post.comments?.count || 0,
+          })),
+        });
+      }
+      case 'search_posts': {
+        const ownerId = q.group_id ? `-${q.group_id}` : undefined;
+        const result = await vkApi.searchPosts({ query: String(q.query || ''), owner_id: ownerId, count: Number(q.count ?? 20), offset: Number(q.offset ?? 0) });
+        return sendOk(res, {
+          count: result.count,
+          posts: result.items.map(post => ({
+            id: post.id,
+            text: post.text.substring(0, 100) + (post.text.length > 100 ? '...' : ''),
+            date: post.date,
+            likes: post.likes?.count || 0,
+            reposts: post.reposts?.count || 0,
+            comments: post.comments?.count || 0,
+          })),
+        });
+      }
+      default:
+        return sendErr(res, 400, 'unknown_resource', `Unknown resource: ${resource}`);
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+
 // MCP API endpoint для Make.com - JSON-RPC 2.0
 app.post('/mcp/api', async (req, res) => {
   try {
@@ -411,7 +598,7 @@ app.post('/mcp/api', async (req, res) => {
     console.log('Incoming POST /mcp/api request.');
     console.log('  Method:', method);
     console.log('  Request ID:', id);
-    console.log('  Headers:', req.headers); // Логируем все заголовки
+    // Не логируем все заголовки целиком во избежание утечек токенов
 
     if (method === 'tools/call') {
       const { name, arguments: args } = params;
@@ -635,6 +822,10 @@ app.get('/health', (req, res) => {
     mcp_endpoints: {
       sse: '/mcp/sse',
       api: '/mcp/api',
+    },
+    n8n_endpoints: {
+      webhook: '/n8n/webhook/:event',
+      poll: '/n8n/poll/:resource'
     },
     uptime: process.uptime(),
     memory: process.memoryUsage(),
@@ -901,8 +1092,24 @@ app.get('/mcp/info', (req, res) => {
       sse_endpoint: '/mcp/sse',
       api_endpoint: '/mcp/api',
       oauth_redirect: 'https://www.make.com/oauth/cb/mcp'
+    },
+    n8n_integration: {
+      webhook_endpoint: '/n8n/webhook/:event',
+      poll_endpoint: '/n8n/poll/:resource'
     }
   });
+});
+
+// Глобальный обработчик ошибок (последним, см. Express error-handling docs)
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('Unhandled error:', err);
+  // Для n8n REST маршрутов возвращаем унифицированный формат, иначе обычный JSON
+  if (res.headersSent) return;
+  const wantsRest = _req.path.startsWith('/n8n/');
+  if (wantsRest) {
+    return sendErr(res, Number(err?.status || 500), 'internal_error', err instanceof Error ? err.message : 'Internal Server Error');
+  }
+  res.status(Number(err?.status || 500)).json({ error: err instanceof Error ? err.message : 'Internal Server Error' });
 });
 
 // Запуск сервера

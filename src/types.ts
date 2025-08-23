@@ -41,6 +41,26 @@ export interface VKApiResponse<T> {
   };
 }
 
+// Единый перечень MCP инструментов
+export type ToolName =
+  | 'post_to_wall'
+  | 'get_wall_posts'
+  | 'search_posts'
+  | 'get_group_info'
+  | 'get_user_info'
+  | 'get_post_stats'
+  | 'get_wall_by_id'
+  | 'get_comments'
+  | 'create_comment'
+  | 'delete_post'
+  | 'edit_post'
+  | 'add_like'
+  | 'delete_like'
+  | 'get_group_members'
+  | 'resolve_screen_name'
+  | 'upload_wall_photo_from_url'
+  | 'upload_video_from_url';
+
 export interface PostToWallParams {
   message: string;
   group_id?: string;

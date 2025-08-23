@@ -12,7 +12,8 @@
     "start:test": "node dist/simple-http-server.js",
     "start:make": "node dist/make-mcp-server.js",
     "start:cursor": "node dist/cursor-mcp-server.js",
-    "clean": "rimraf dist"
+    "clean": "rimraf dist",
+    "format": "prettier --write ."
   },
   "keywords": ["mcp", "vkontakte", "vk", "social-media", "russian", "make.com"],
   "author": "Your Name",
@@ -28,6 +29,7 @@
     "@types/node": "^20.0.0",
     "@types/express": "^4.17.21",
     "@types/cors": "^2.8.17",
+    "prettier": "^3.3.0",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0",
     "rimraf": "^5.0.0"

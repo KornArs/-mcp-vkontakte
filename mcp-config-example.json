@@ -1,14 +1,21 @@
 {
   "mcpServers": {
-    "vkontakte": {
+    "vkontakte-stdio": {
       "command": "node",
-      "args": ["E:\\Новая папка (3)\\dist\\index.js"],
-      "description": "MCP server for VKontakte (VK.com) integration",
+      "args": ["dist/cursor-mcp-server.js"],
+      "description": "VKontakte MCP server via STDIO (local)",
       "disabled": false,
       "env": {
         "VK_ACCESS_TOKEN": "your_vk_access_token_here",
-        "VK_API_VERSION": "5.131",
-        "VK_GROUP_ID": "your_group_id_here"
+        "VK_API_VERSION": "5.199"
+      }
+    },
+    "vkontakte-http": {
+      "url": "https://mcp-vkontakte-production.up.railway.app/mcp",
+      "description": "VKontakte MCP server via HTTP (Railway)",
+      "disabled": false,
+      "headers": {
+        "x-vk-access-token": "your_vk_access_token_here"
       }
     }
   }

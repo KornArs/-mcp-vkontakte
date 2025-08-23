@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { VKApi } from './vk-api.js';
+import { randomUUID } from 'crypto';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -11,17 +12,21 @@ console.log('  PORT:', process.env.PORT);
 console.log('  NODE_ENV:', process.env.NODE_ENV);
 console.log('  Using PORT:', PORT);
 
-// CORS для всех клиентов (Make, Cursor, LLM)
+// CORS для всех клиентов (Make, Cursor, n8n)
 app.use(cors({
   origin: (_origin, callback) => callback(null, true),
   credentials: true,
   allowedHeaders: ['Content-Type', 'Authorization', 'x-vk-access-token', 'mcp-session-id'],
+  exposedHeaders: ['mcp-session-id']
 }));
 
 app.use(express.json());
 
-// Разрешаем preflight для всех маршрутов (см. Express CORS docs)
+// Разрешаем preflight для всех маршрутов
 app.options('*', cors());
+
+// Хранилище сессий для Streamable HTTP
+const sessions: Map<string, any> = new Map();
 
 // Достаём VK access token из заголовка запроса
 function extractAccessToken(req: express.Request): string {
@@ -67,8 +72,7 @@ function extractAccessToken(req: express.Request): string {
 // Создание VK API клиента
 function createVKApi(req: express.Request) {
   const accessToken = extractAccessToken(req);
-  const apiVersion = '5.199'; // Захардкоженная версия API
-
+  const apiVersion = '5.199';
   return new VKApi(accessToken, apiVersion);
 }
 
@@ -81,56 +85,32 @@ function sendErr(res: express.Response, httpStatus: number, code: string | numbe
   res.status(httpStatus).json({ success: false, error: { code, message } });
 }
 
-// Общая функция запуска SSE-потока (без редиректов)
-function startSSE(res: express.Response, label: string) {
-  console.log(`Client connected to SSE (${label})`);
-  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders();
-
-  // Отправляем информацию о сервере в JSON-RPC формате
-  res.write(`data: ${JSON.stringify({
-    jsonrpc: '2.0',
-    id: null,
-    method: 'notifications/serverInfo',
-    params: {
-      name: 'vkontakte-mcp-server',
-      version: '1.0.0',
-      description: 'MCP server for VKontakte (VK.com) integration',
-      transport: 'SSE + HTTP',
-      capabilities: ['tools']
-    }
-  })}\n\n`);
-
-  // Полный список инструментов (17)
-  const tools = [
+// Полный список инструментов (17)
+const ALL_TOOLS = [
     {
       name: 'post_to_wall',
-      description: 'Публикует пост на стену пользователя или группы ВКонтакте',
+    description: 'Публикует пост на стену',
       inputSchema: {
         type: 'object',
         properties: {
           message: { type: 'string', description: 'Текст поста' },
           group_id: { type: 'string', description: 'ID группы' },
           user_id: { type: 'string', description: 'ID пользователя' },
-          attachments: { type: 'array', items: { type: 'string' }, description: 'Массив вложений (ссылки на медиа)' },
-          publish_date: { type: 'number', description: 'Время публикации (Unix timestamp)' }
         },
         required: ['message'],
       },
     },
     {
       name: 'get_wall_posts',
-      description: 'Получает посты со стены пользователя или группы',
+    description: 'Получает посты со стены',
       inputSchema: {
         type: 'object',
         properties: {
-          group_id: { type: 'string', description: 'ID группы' },
-          user_id: { type: 'string', description: 'ID пользователя' },
-          count: { type: 'number', description: 'Количество постов для получения (по умолчанию 20)', default: 20 },
-          offset: { type: 'number', description: 'Смещение от начала (по умолчанию 0)', default: 0 },
-        },
+        group_id: { type: 'string', description: 'ID группы' },
+        user_id: { type: 'string', description: 'ID пользователя' },
+        count: { type: 'number', description: 'Количество постов', default: 20 },
+        offset: { type: 'number', description: 'Смещение', default: 0 },
+      },
       },
     },
     {
@@ -139,978 +119,759 @@ function startSSE(res: express.Response, label: string) {
       inputSchema: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: 'Поисковый запрос', required: true },
-          group_id: { type: 'string', description: 'ID группы для поиска' },
-          count: { type: 'number', description: 'Количество результатов', default: 20 },
-          offset: { type: 'number', description: 'Смещение от начала', default: 0 },
+        query: { type: 'string', description: 'Поисковый запрос' },
+        group_id: { type: 'string', description: 'ID группы' },
+        count: { type: 'number', description: 'Количество постов', default: 20 },
+        offset: { type: 'number', description: 'Смещение', default: 0 },
         },
         required: ['query'],
       },
     },
     {
       name: 'get_group_info',
-      description: 'Получает информацию о группе ВКонтакте',
+    description: 'Получает информацию о группе',
       inputSchema: {
         type: 'object',
         properties: {
-          group_id: { type: 'string', description: 'ID группы', required: true },
+        group_id: { type: 'string', description: 'ID группы' },
         },
         required: ['group_id'],
       },
     },
     {
       name: 'get_user_info',
-      description: 'Получает информацию о пользователе ВКонтакте',
+    description: 'Получает информацию о пользователе',
       inputSchema: {
         type: 'object',
         properties: {
-          user_id: { type: 'string', description: 'ID пользователя', required: true },
+        user_id: { type: 'string', description: 'ID пользователя' },
         },
         required: ['user_id'],
       },
     },
-    {
-      name: 'get_post_stats',
-      description: 'Получает статистику поста',
+  {
+    name: 'get_post_stats',
+    description: 'Получает статистику поста',
       inputSchema: {
         type: 'object',
         properties: {
-          post_id: { type: 'string', description: 'ID поста', required: true },
+        post_id: { type: 'string', description: 'ID поста' },
           group_id: { type: 'string', description: 'ID группы' },
         },
-        required: ['post_id'],
+      required: ['post_id'],
       },
     },
     {
-      name: 'get_wall_by_id',
-      description: 'Получает стену по ID',
+    name: 'get_wall_by_id',
+    description: 'Получает пост по ID',
       inputSchema: {
         type: 'object',
         properties: {
-          wall_id: { type: 'string', description: 'ID стены', required: true },
-          count: { type: 'number', description: 'Количество постов', default: 20 },
-          offset: { type: 'number', description: 'Смещение', default: 0 },
-        },
-        required: ['wall_id'],
+        post_id: { type: 'string', description: 'ID поста' },
+        group_id: { type: 'string', description: 'ID группы' },
+      },
+      required: ['post_id'],
+    },
+  },
+  {
+    name: 'get_comments',
+    description: 'Получает комментарии к посту',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        post_id: { type: 'string', description: 'ID поста' },
+        group_id: { type: 'string', description: 'ID группы' },
+        count: { type: 'number', description: 'Количество комментариев', default: 20 },
+        offset: { type: 'number', description: 'Смещение', default: 0 },
+      },
+      required: ['post_id'],
+    },
+  },
+  {
+    name: 'create_comment',
+    description: 'Создает комментарий к посту',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        post_id: { type: 'string', description: 'ID поста' },
+        message: { type: 'string', description: 'Текст комментария' },
+        group_id: { type: 'string', description: 'ID группы' },
+      },
+      required: ['post_id', 'message'],
       },
     },
     {
-      name: 'get_comments',
-      description: 'Получает комментарии к посту',
+    name: 'delete_post',
+    description: 'Удаляет пост',
       inputSchema: {
         type: 'object',
         properties: {
-          post_id: { type: 'string', description: 'ID поста', required: true },
-          group_id: { type: 'string', description: 'ID группы' },
-          count: { type: 'number', description: 'Количество комментариев', default: 20 },
-          offset: { type: 'number', description: 'Смещение', default: 0 },
-        },
-        required: ['post_id'],
+        post_id: { type: 'string', description: 'ID поста' },
+        group_id: { type: 'string', description: 'ID группы' },
+      },
+      required: ['post_id'],
+    },
+  },
+  {
+    name: 'edit_post',
+    description: 'Редактирует пост',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        post_id: { type: 'string', description: 'ID поста' },
+        message: { type: 'string', description: 'Новый текст поста' },
+        group_id: { type: 'string', description: 'ID группы' },
+      },
+      required: ['post_id', 'message'],
+    },
+  },
+  {
+    name: 'add_like',
+    description: 'Ставит лайк посту',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        post_id: { type: 'string', description: 'ID поста' },
+        group_id: { type: 'string', description: 'ID группы' },
+      },
+      required: ['post_id'],
       },
     },
     {
-      name: 'create_comment',
-      description: 'Создает комментарий к посту',
+    name: 'delete_like',
+    description: 'Убирает лайк с поста',
       inputSchema: {
         type: 'object',
         properties: {
-          post_id: { type: 'string', description: 'ID поста', required: true },
-          message: { type: 'string', description: 'Текст комментария', required: true },
-          group_id: { type: 'string', description: 'ID группы' },
-        },
-        required: ['post_id', 'message'],
+        post_id: { type: 'string', description: 'ID поста' },
+        group_id: { type: 'string', description: 'ID группы' },
       },
+      required: ['post_id'],
     },
-    {
-      name: 'delete_post',
-      description: 'Удаляет пост',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          post_id: { type: 'string', description: 'ID поста', required: true },
-          group_id: { type: 'string', description: 'ID группы' },
-        },
-        required: ['post_id'],
-      },
-    },
-    {
-      name: 'edit_post',
-      description: 'Редактирует пост',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          post_id: { type: 'string', description: 'ID поста', required: true },
-          message: { type: 'string', description: 'Новый текст поста', required: true },
-          group_id: { type: 'string', description: 'ID группы' },
-        },
-        required: ['post_id', 'message'],
-      },
-    },
-    {
-      name: 'add_like',
-      description: 'Ставит лайк посту',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          post_id: { type: 'string', description: 'ID поста', required: true },
-          group_id: { type: 'string', description: 'ID группы' },
-        },
-        required: ['post_id'],
-      },
-    },
-    {
-      name: 'delete_like',
-      description: 'Убирает лайк с поста',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          post_id: { type: 'string', description: 'ID поста', required: true },
-          group_id: { type: 'string', description: 'ID группы' },
-        },
-        required: ['post_id'],
-      },
-    },
-    {
-      name: 'get_group_members',
-      description: 'Получает список участников группы',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          group_id: { type: 'string', description: 'ID группы', required: true },
-          count: { type: 'number', description: 'Количество участников', default: 20 },
-          offset: { type: 'number', description: 'Смещение', default: 0 },
+  },
+  {
+    name: 'get_group_members',
+    description: 'Получает список участников группы',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        group_id: { type: 'string', description: 'ID группы' },
+        count: { type: 'number', description: 'Количество участников', default: 100 },
+        offset: { type: 'number', description: 'Смещение', default: 0 },
         },
         required: ['group_id'],
       },
     },
     {
-      name: 'resolve_screen_name',
-      description: 'Разрешает screen_name в ID',
+    name: 'resolve_screen_name',
+    description: 'Определяет тип объекта по короткому имени',
       inputSchema: {
         type: 'object',
         properties: {
-          screen_name: { type: 'string', description: 'Screen name для разрешения', required: true },
-        },
-        required: ['screen_name'],
+        screen_name: { type: 'string', description: 'Короткое имя' },
       },
+      required: ['screen_name'],
     },
-    {
-      name: 'upload_wall_photo_from_url',
-      description: 'Загружает фото на стену из URL',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          photo_url: { type: 'string', description: 'URL фото', required: true },
-          group_id: { type: 'string', description: 'ID группы' },
-        },
-        required: ['photo_url'],
+  },
+  {
+    name: 'upload_wall_photo_from_url',
+    description: 'Загружает фото на стену по URL',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        photo_url: { type: 'string', description: 'URL фото' },
+        group_id: { type: 'string', description: 'ID группы' },
       },
+      required: ['photo_url'],
     },
-    {
-      name: 'upload_video_from_url',
-      description: 'Загружает видео из URL',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          video_url: { type: 'string', description: 'URL видео', required: true },
-          name: { type: 'string', description: 'Название видео', required: true },
-          description: { type: 'string', description: 'Описание видео' },
-          group_id: { type: 'string', description: 'ID группы' },
-        },
-        required: ['video_url', 'name'],
+  },
+  {
+    name: 'upload_video_from_url',
+    description: 'Загружает видео по URL',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        video_url: { type: 'string', description: 'URL видео' },
+        name: { type: 'string', description: 'Название видео' },
+        description: { type: 'string', description: 'Описание видео' },
+        group_id: { type: 'string', description: 'ID группы' },
+      },
+      required: ['video_url', 'name'],
       },
     },
   ];
 
-  tools.forEach(tool => {
-    res.write(`data: ${JSON.stringify({
-      jsonrpc: '2.0',
-      id: null,
-      method: 'notifications/toolInfo',
-      params: { tool }
-    })}\n\n`);
-  });
-
-  const keepalive = setInterval(() => {
-    res.write(':keepalive\n\n');
-  }, 30000);
-
-  // Вернём функцию очистки, чтобы внешние обработчики могли отписаться
-  return () => clearInterval(keepalive);
-}
-
-// MCP SSE endpoint для Make.com
-app.get('/mcp/sse', (req, res) => {
-  const stop = startSSE(res, '/mcp/sse');
-  req.on('close', () => {
-    stop();
-    console.log('Client disconnected from SSE (/mcp/sse)');
-  });
-});
-
-// POST обработчик для /mcp/sse (Make.com сначала делает POST)
-app.post('/mcp/sse', async (req, res) => {
-  const { id, method } = req.body || {};
-  console.log(`POST /mcp/sse - method: ${method}`);
-  
-  if (method === 'initialize') {
-    res.json({
-      jsonrpc: '2.0',
-      id,
-      result: {
-        protocolVersion: '2024-11-05',
-        capabilities: { tools: {} },
-        serverInfo: { name: 'vkontakte-mcp-server', version: '1.0.0' }
-      }
-    });
-  } else {
-    res.json({ jsonrpc: '2.0', id, result: {} });
-  }
-});
-
-// SSE алиас для совместимости с HTTP MCP клиентами (Cursor ожидает /sse)
-app.get('/sse', (req, res) => {
-  const stop = startSSE(res, '/sse');
-  req.on('close', () => {
-    stop();
-    console.log('Client disconnected from SSE (/sse)');
-  });
-});
-
-// POST обработчик для /sse (Make.com)
-app.post('/sse', async (req, res) => {
-  const { id, method } = req.body || {};
-  console.log(`POST /sse - method: ${method}`);
-  
-  if (method === 'initialize') {
-    res.json({
-      jsonrpc: '2.0',
-      id,
-      result: {
-        protocolVersion: '2024-11-05',
-        capabilities: { tools: {} },
-        serverInfo: { name: 'vkontakte-mcp-server', version: '1.0.0' }
-      }
-    });
-  } else {
-    res.json({ jsonrpc: '2.0', id, result: {} });
-  }
-});
-
-// ========== n8n INTEGRATION ==========
-// Webhook endpoint для n8n триггеров/действий
-app.post('/n8n/webhook/:event', async (req, res, next) => {
-  try {
-    const secret = process.env.N8N_WEBHOOK_SECRET;
-    const provided = (req.headers['x-n8n-token'] as string) || (req.query['token'] as string) || '';
-    if (secret && provided !== secret) {
-      return sendErr(res, 401, 'unauthorized', 'Invalid n8n webhook token');
-    }
-
-    const event = String(req.params.event || '').trim();
-
-    let vkApi: VKApi;
-    try {
-      vkApi = createVKApi(req);
-    } catch (err) {
-      return sendErr(res, 401, 'auth_failed', err instanceof Error ? err.message : 'Authentication failed');
-    }
-
-    const body: any = req.body || {};
-
-    switch (event) {
-      case 'post_to_wall': {
-        const ownerId = body.group_id ? `-${body.group_id}` : body.user_id;
-
-        // Поддержка media_urls как в JSON-RPC
-        let attachments: string[] | undefined = body.attachments;
-        const mediaUrls: string[] = [];
-        if (typeof body.media_urls === 'string') mediaUrls.push(body.media_urls);
-        else if (Array.isArray(body.media_urls)) mediaUrls.push(...body.media_urls);
-
-        if (mediaUrls.length > 0) {
-          const uploaded: string[] = [];
-          for (const url of mediaUrls) {
-            const lower = String(url).toLowerCase();
-            if (lower.includes('.mp4') || lower.includes('video')) {
-              const a = await vkApi.uploadVideoFromUrl({ videoUrl: url, owner_id: ownerId });
-              uploaded.push(a);
-            } else {
-              const a = await vkApi.uploadWallPhotoFromUrl({ imageUrl: url, owner_id: ownerId });
-              uploaded.push(a);
-            }
-          }
-          attachments = [...(attachments || []), ...uploaded];
-        }
-
-        const result = await vkApi.postToWall({
-          message: body.message,
-          owner_id: ownerId,
-          attachments,
-          publish_date: body.publish_date,
-        });
-        return sendOk(res, { post_id: result.post_id, owner_id: ownerId });
-      }
-
-      case 'get_wall_posts': {
-        const ownerId = body.group_id ? `-${body.group_id}` : body.user_id;
-        const result = await vkApi.getWallPosts({ owner_id: ownerId, count: body.count || 20, offset: body.offset || 0 });
-        return sendOk(res, {
-          count: result.count,
-          posts: result.items.map(post => ({
-            id: post.id,
-            text: post.text.substring(0, 100) + (post.text.length > 100 ? '...' : ''),
-            date: post.date,
-            likes: post.likes?.count || 0,
-            reposts: post.reposts?.count || 0,
-            comments: post.comments?.count || 0,
-          })),
-        });
-      }
-
-      case 'search_posts': {
-        const ownerId = body.group_id ? `-${body.group_id}` : undefined;
-        const result = await vkApi.searchPosts({ query: body.query, owner_id: ownerId, count: body.count || 20, offset: body.offset || 0 });
-        return sendOk(res, {
-          count: result.count,
-          posts: result.items.map(post => ({
-            id: post.id,
-            text: post.text.substring(0, 100) + (post.text.length > 100 ? '...' : ''),
-            date: post.date,
-            likes: post.likes?.count || 0,
-            reposts: post.reposts?.count || 0,
-            comments: post.comments?.count || 0,
-          })),
-        });
-      }
-
-      case 'get_group_info': {
-        const result = await vkApi.getGroupInfo(body.group_id);
-        const group = result && result[0];
-        if (!group) return sendErr(res, 404, 'not_found', 'Group not found');
-        return sendOk(res, {
-          id: group.id,
-          name: group.name,
-          screen_name: group.screen_name,
-          type: group.type,
-          members_count: group.members_count,
-        });
-      }
-
-      case 'get_user_info': {
-        const result = await vkApi.getUserInfo(body.user_id);
-        const user = result && result[0];
-        if (!user) return sendErr(res, 404, 'not_found', 'User not found');
-        return sendOk(res, {
-          id: user.id,
-          first_name: user.first_name,
-          last_name: user.last_name,
-          screen_name: user.screen_name,
-          photo_100: user.photo_100,
-        });
-      }
-
-      default:
-        return sendErr(res, 400, 'unknown_event', `Unknown event: ${event}`);
-    }
-  } catch (err) {
-    next(err);
-  }
-});
-
-// Polling endpoint для n8n
-app.get('/n8n/poll/:resource', async (req, res, next) => {
-  try {
-    let vkApi: VKApi;
-    try {
-      vkApi = createVKApi(req);
-    } catch (err) {
-      return sendErr(res, 401, 'auth_failed', err instanceof Error ? err.message : 'Authentication failed');
-    }
-
-    const resource = String(req.params.resource || '').trim();
-    const q = req.query as any;
-
-    switch (resource) {
-      case 'wall_posts': {
-        const ownerId = q.group_id ? `-${q.group_id}` : q.user_id;
-        const result = await vkApi.getWallPosts({ owner_id: ownerId, count: Number(q.count ?? 20), offset: Number(q.offset ?? 0) });
-        return sendOk(res, {
-          count: result.count,
-          posts: result.items.map(post => ({
-            id: post.id,
-            text: post.text.substring(0, 100) + (post.text.length > 100 ? '...' : ''),
-            date: post.date,
-            likes: post.likes?.count || 0,
-            reposts: post.reposts?.count || 0,
-            comments: post.comments?.count || 0,
-          })),
-        });
-      }
-      case 'search_posts': {
-        const ownerId = q.group_id ? `-${q.group_id}` : undefined;
-        const result = await vkApi.searchPosts({ query: String(q.query || ''), owner_id: ownerId, count: Number(q.count ?? 20), offset: Number(q.offset ?? 0) });
-        return sendOk(res, {
-          count: result.count,
-          posts: result.items.map(post => ({
-            id: post.id,
-            text: post.text.substring(0, 100) + (post.text.length > 100 ? '...' : ''),
-            date: post.date,
-            likes: post.likes?.count || 0,
-            reposts: post.reposts?.count || 0,
-            comments: post.comments?.count || 0,
-          })),
-        });
-      }
-      default:
-        return sendErr(res, 400, 'unknown_resource', `Unknown resource: ${resource}`);
-    }
-  } catch (err) {
-    next(err);
-  }
-});
-
-// MCP API endpoint для Make.com - JSON-RPC 2.0
-app.post('/mcp/api', async (req, res) => {
-  try {
-    const { method, params, id } = req.body;
-    
-    console.log('Incoming POST /mcp/api request.');
-    console.log('  Method:', method);
-    console.log('  Request ID:', id);
-    // Не логируем все заголовки целиком во избежание утечек токенов
-
-    if (method === 'tools/call') {
-      const { name, arguments: args } = params;
-      let vkApi;
-      try {
-        vkApi = createVKApi(req);
-        console.log('VK API client created successfully.');
-      } catch (tokenError) {
-        console.error('Error creating VK API client:', tokenError); // Логируем ошибку создания клиента
-        res.status(401).json({
-          jsonrpc: '2.0',
-          id: id,
-          error: {
-            code: -32000, // Invalid Request
-            message: `Authentication failed: ${tokenError instanceof Error ? tokenError.message : 'Unknown error'}`,
-          }
-        });
-        return;
-      }
-
-      let result;
+// Обработчик вызова инструментов
+async function handleToolCall(vkApi: VKApi, name: string, args: any): Promise<any> {
       switch (name) {
         case 'post_to_wall': {
           const ownerId = args.group_id ? `-${args.group_id}` : args.user_id;
-
-          // Обрабатываем media_urls: string | string[]
-          let attachments: string[] | undefined = args.attachments;
-          const mediaUrls: string[] = [];
-          if (typeof args.media_urls === 'string') mediaUrls.push(args.media_urls);
-          else if (Array.isArray(args.media_urls)) mediaUrls.push(...args.media_urls);
-
-          if (mediaUrls.length > 0) {
-            const uploaded: string[] = [];
-            for (const url of mediaUrls) {
-              const lower = String(url).toLowerCase();
-              if (lower.includes('.mp4') || lower.includes('video')) {
-                const a = await vkApi.uploadVideoFromUrl({ videoUrl: url, owner_id: ownerId });
-                uploaded.push(a);
-              } else {
-                const a = await vkApi.uploadWallPhotoFromUrl({ imageUrl: url, owner_id: ownerId });
-                uploaded.push(a);
-              }
-            }
-            attachments = [...(attachments || []), ...uploaded];
-          }
-
-          result = await vkApi.postToWall({
-            message: args.message,
+      const result = await vkApi.postToWall({
             owner_id: ownerId,
-            attachments,
-            publish_date: args.publish_date,
-          });
-          
-          res.json({
-            jsonrpc: '2.0',
-            id: id,
-            result: {
-              post_id: result.post_id,
-              message: 'Пост успешно опубликован!',
-              owner_id: ownerId,
-              target: args.group_id ? 'group' : 'user'
-            }
-          });
-          break;
+        message: args.message,
+      });
+      return {
+        postId: result.post_id,
+        message: 'Post created successfully',
+      };
         }
 
         case 'get_wall_posts': {
           const ownerId = args.group_id ? `-${args.group_id}` : args.user_id;
-          result = await vkApi.getWallPosts({
+      const result = await vkApi.getWallPosts({
             owner_id: ownerId,
             count: args.count || 20,
             offset: args.offset || 0,
           });
-          
-          res.json({
-            jsonrpc: '2.0',
-            id: id,
-            result: {
+      return {
               count: result.count,
-              posts: result.items.map(post => ({
+        posts: result.items.map((post: any) => ({
                 id: post.id,
                 text: post.text.substring(0, 100) + (post.text.length > 100 ? '...' : ''),
                 date: post.date,
                 likes: post.likes?.count || 0,
                 reposts: post.reposts?.count || 0,
                 comments: post.comments?.count || 0,
-              }))
-            }
-          });
-          break;
+        })),
+      };
         }
 
         case 'search_posts': {
           const ownerId = args.group_id ? `-${args.group_id}` : undefined;
-          result = await vkApi.searchPosts({
+      const result = await vkApi.searchPosts({
             query: args.query,
             owner_id: ownerId,
             count: args.count || 20,
             offset: args.offset || 0,
           });
-          
-          res.json({
-            jsonrpc: '2.0',
-            id: id,
-            result: {
+      return {
               count: result.count,
-              posts: result.items.map(post => ({
+        posts: result.items.map((post: any) => ({
                 id: post.id,
                 text: post.text.substring(0, 100) + (post.text.length > 100 ? '...' : ''),
                 date: post.date,
                 likes: post.likes?.count || 0,
                 reposts: post.reposts?.count || 0,
                 comments: post.comments?.count || 0,
-              }))
-            }
-          });
-          break;
+        })),
+      };
         }
 
         case 'get_group_info': {
-          result = await vkApi.getGroupInfo(args.group_id);
+      const result = await vkApi.getGroupInfo(args.group_id);
           const group = result && result[0];
-          
-          if (!group) {
-            res.status(404).json({
-              jsonrpc: '2.0',
-              id: id,
-              error: {
-                code: -32602,
-                message: 'Group not found'
-              }
-            });
-            return;
-          }
-          
-          res.json({
-            jsonrpc: '2.0',
-            id: id,
-            result: {
+      return group
+        ? {
               id: group.id,
               name: group.name,
               screen_name: group.screen_name,
-              type: group.type,
+            description: (group as any).description || '',
               members_count: group.members_count,
             }
-          });
-          break;
+        : { error: 'Group not found' };
         }
 
         case 'get_user_info': {
-          result = await vkApi.getUserInfo(args.user_id);
+      const result = await vkApi.getUserInfo(args.user_id);
           const user = result && result[0];
-          
-          if (!user) {
-            res.status(404).json({
-              jsonrpc: '2.0',
-              id: id,
-              error: {
-                code: -32602,
-                message: 'User not found'
-              }
-            });
-            return;
-          }
-          
-          res.json({
-            jsonrpc: '2.0',
-            id: id,
-            result: {
+      return user
+        ? {
               id: user.id,
               first_name: user.first_name,
               last_name: user.last_name,
               screen_name: user.screen_name,
-              photo_100: user.photo_100,
-            }
-          });
-          break;
-        }
-
-        default:
-          res.status(400).json({
-            jsonrpc: '2.0',
-            id: id,
-            error: {
-              code: -32601,
-              message: `Unknown tool: ${name}`
-            }
-          });
-          return;
-      }
-    } else {
-      res.status(400).json({
-        jsonrpc: '2.0',
-        id: id,
-        error: {
-          code: -32601,
-          message: `Unknown method: ${method}`
-        }
-      });
+          }
+        : { error: 'User not found' };
     }
-  } catch (error) {
-    console.error('Error in MCP API:', error);
-    res.status(500).json({
-      jsonrpc: '2.0',
-      id: req.body.id,
-      error: {
-        code: -32603,
-        message: error instanceof Error ? error.message : 'Неизвестная ошибка'
-      }
-    });
-  }
-});
 
-// Health check для Make.com
-app.get('/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    service: 'VKontakte MCP Server for Make.com',
-    version: '1.0.0',
-    timestamp: new Date().toISOString(),
-    mcp_endpoints: {
-      sse: '/mcp/sse',
-      api: '/mcp/api',
-    },
-    n8n_endpoints: {
-      webhook: '/n8n/webhook/:event',
-      poll: '/n8n/poll/:resource'
-    },
-    uptime: process.uptime(),
-    memory: process.memoryUsage(),
-    port: PORT
+    case 'get_post_stats': {
+      const ownerId = args.group_id ? `-${args.group_id}` : '';
+      const result = await vkApi.getPostStats(
+        args.post_id,
+        ownerId
+      );
+      return result;
+    }
+
+    case 'get_wall_by_id': {
+      const ownerId = args.group_id ? `-${args.group_id}` : '';
+      const result = await vkApi.getWallById(
+        `${ownerId}_${args.post_id}`
+      );
+      return result;
+    }
+
+    case 'get_comments': {
+      const ownerId = args.group_id ? `-${args.group_id}` : '';
+      const result = await vkApi.getComments({
+        owner_id: ownerId,
+        post_id: args.post_id,
+        count: args.count || 20,
+        offset: args.offset || 0,
+      });
+      return result;
+    }
+
+    case 'create_comment': {
+      const ownerId = args.group_id ? `-${args.group_id}` : '';
+      const result = await vkApi.createComment({
+        owner_id: ownerId,
+        post_id: args.post_id,
+        message: args.message,
+      });
+      return result;
+    }
+
+    case 'delete_post': {
+      const ownerId = args.group_id ? `-${args.group_id}` : '';
+      const result = await vkApi.deletePost({
+        owner_id: ownerId,
+        post_id: parseInt(args.post_id),
+      });
+      return result;
+    }
+
+    case 'edit_post': {
+      const ownerId = args.group_id ? `-${args.group_id}` : '';
+      const result = await vkApi.editPost({
+        owner_id: ownerId,
+        post_id: parseInt(args.post_id),
+        message: args.message,
+      });
+      return result;
+    }
+
+    case 'add_like': {
+      const ownerId = args.group_id ? `-${args.group_id}` : '';
+      const result = await vkApi.addLike({
+        type: 'post',
+        owner_id: ownerId,
+        item_id: parseInt(args.post_id),
+      });
+      return result;
+    }
+
+    case 'delete_like': {
+      const ownerId = args.group_id ? `-${args.group_id}` : '';
+      const result = await vkApi.deleteLike({
+        type: 'post',
+        owner_id: ownerId,
+        item_id: parseInt(args.post_id),
+      });
+      return result;
+    }
+
+    case 'get_group_members': {
+      const result = await vkApi.getGroupMembers({
+        group_id: args.group_id,
+        count: args.count || 100,
+        offset: args.offset || 0,
+      });
+      return result;
+    }
+
+    case 'resolve_screen_name': {
+      const result = await vkApi.resolveScreenName(
+        args.screen_name
+      );
+      return result;
+    }
+
+    case 'upload_wall_photo_from_url': {
+      const ownerId = args.group_id ? `-${args.group_id}` : undefined;
+      const result = await vkApi.uploadWallPhotoFromUrl({
+        imageUrl: args.photo_url,
+        owner_id: ownerId
+      });
+      return result;
+    }
+
+    case 'upload_video_from_url': {
+      const ownerId = args.group_id ? `-${args.group_id}` : undefined;
+      const result = await vkApi.uploadVideoFromUrl({
+        videoUrl: args.video_url,
+        owner_id: ownerId,
+        name: args.name,
+        description: args.description
+      });
+      return result;
+    }
+
+    default:
+      throw new Error(`Unknown tool: ${name}`);
+  }
+}
+
+// ============================
+// ОСНОВНЫЕ ЭНДПОИНТЫ MCP
+// ============================
+
+// GET /mcp - SSE для уведомлений (Streamable HTTP)
+app.get('/mcp', (req, res) => {
+  const sessionId = req.headers['mcp-session-id'] as string;
+  
+  if (!sessionId || !sessions.has(sessionId)) {
+    res.status(400).send('Invalid or missing session ID');
+    return;
+  }
+
+  console.log(`Client connected to SSE (session: ${sessionId})`);
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+  // Отправляем информацию о сервере
+    res.write(`data: ${JSON.stringify({
+      jsonrpc: '2.0',
+      id: null,
+      method: 'notifications/serverInfo',
+      params: {
+        name: 'vkontakte-mcp-server',
+        version: '1.0.0',
+        description: 'MCP server for VKontakte (VK.com) integration',
+      transport: 'Streamable HTTP',
+      capabilities: ['tools'],
+      protocolVersion: '2025-03-26'
+      }
+    })}\n\n`);
+
+  // Отправляем список инструментов
+      res.write(`data: ${JSON.stringify({
+        jsonrpc: '2.0',
+        id: null,
+    method: 'notifications/tools/list',
+    params: {
+      tools: ALL_TOOLS
+    }
+      })}\n\n`);
+
+  // Keep-alive
+  const keepAlive = setInterval(() => {
+    res.write(': ping\n\n');
+    }, 30000);
+
+    req.on('close', () => {
+    console.log(`Client disconnected from SSE (session: ${sessionId})`);
+    clearInterval(keepAlive);
   });
 });
 
-// Startup probe для Railway
-app.get('/', (req, res) => {
-  const accept = String(req.headers['accept'] || '');
-  if (accept.includes('text/event-stream')) {
-    const stop = startSSE(res, '/');
-    req.on('close', () => {
-      stop();
-      console.log('Client disconnected from SSE (/)');
+// POST /mcp - JSON-RPC для команд (Streamable HTTP)
+app.post('/mcp', async (req, res) => {
+  const { jsonrpc, method, params, id } = req.body;
+  
+  if (jsonrpc !== '2.0') {
+    res.status(400).json({
+      jsonrpc: '2.0',
+      error: { code: -32600, message: 'Invalid Request' },
+      id: id || null
     });
     return;
   }
-  res.json({
-    status: 'ready',
-    message: 'VKontakte MCP Server is running',
-    timestamp: new Date().toISOString(),
-    mcp_endpoints: { sse: '/mcp/sse', api: '/mcp/api' },
-    port: PORT
-  });
-});
 
-// MCP Discovery endpoint для Make.com (корневой путь) - JSON-RPC 2.0
-app.post('/', async (req, res) => {
-  const { id, method, params } = req.body;
+  try {
+    let sessionId = req.headers['mcp-session-id'] as string;
 
-  console.log(`Incoming POST / request. Method: ${method}`); // Добавлено логирование
-
+    // Обработка initialize
   if (method === 'initialize') {
+      sessionId = randomUUID();
+      sessions.set(sessionId, { initialized: true });
+      res.setHeader('mcp-session-id', sessionId);
+      
     res.json({
       jsonrpc: '2.0',
-      id: id,
       result: {
-        protocolVersion: '2024-11-05',
+          protocolVersion: '2025-03-26',
         capabilities: {
-          tools: {}
+            tools: { listChanged: true }
         },
         serverInfo: {
           name: 'vkontakte-mcp-server',
           version: '1.0.0'
         }
-      }
-    });
-  } else if (method === 'tools/list') {
+        },
+        id
+      });
+      return;
+    }
+
+    // Проверка сессии для остальных методов
+    if (!sessionId || !sessions.has(sessionId)) {
+      res.status(400).json({
+        jsonrpc: '2.0',
+        error: { code: -32000, message: 'Session required' },
+        id
+      });
+      return;
+    }
+
+    // Обработка методов
+    switch (method) {
+      case 'tools/list':
     res.json({
       jsonrpc: '2.0',
-      id: id,
-      result: {
-        tools: [
-          {
-            name: 'post_to_wall',
-            description: 'Публикует пост на стену пользователя или группы ВКонтакте',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                message: { type: 'string', description: 'Текст поста' },
-                group_id: { type: 'string', description: 'ID группы' },
-                user_id: { type: 'string', description: 'ID пользователя' }
-              },
-              required: ['message']
-            }
-          },
-          {
-            name: 'get_wall_posts',
-            description: 'Получает посты со стены',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                group_id: { type: 'string' },
-                user_id: { type: 'string' },
-                count: { type: 'number', default: 20 },
-                offset: { type: 'number', default: 0 }
-              }
-            }
-          },
-          {
-            name: 'search_posts',
-            description: 'Ищет посты по ключевому слову',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                query: { type: 'string', description: 'Поисковый запрос' },
-                group_id: { type: 'string' },
-                count: { type: 'number', default: 20 },
-                offset: { type: 'number', default: 0 }
-              },
-              required: ['query']
-            }
-          },
-          {
-            name: 'get_group_info',
-            description: 'Получает информацию о группе',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                group_id: { type: 'string', description: 'ID группы' }
-              },
-              required: ['group_id']
-            }
-          },
-          {
-            name: 'get_user_info',
-            description: 'Получает информацию о пользователе',
-            inputSchema: {
-              type: 'object',
-              properties: {
-                user_id: { type: 'string', description: 'ID пользователя' }
-              },
-              required: ['user_id']
-            }
-          }
-        ]
-      }
-    });
-  } else if (method === 'notifications/initialized') {
-    // Make.com отправляет это как уведомление, ответ не требуется, но отправим успешный
-    res.json({
-      jsonrpc: '2.0',
-      id: id,
-      result: {}
-    });
-  } else if (method === 'tools/call') {
-    try {
-      const { name, arguments: args } = params || {};
-      let vkApi;
-      try {
-        vkApi = createVKApi(req);
-        console.log('VK API client created successfully (root /).');
-      } catch (tokenError) {
-        console.error('Error creating VK API client:', tokenError);
-        res.status(401).json({
-          jsonrpc: '2.0',
-          id,
-          error: { code: -32000, message: `Authentication failed: ${tokenError instanceof Error ? tokenError.message : 'Unknown error'}` }
+          result: { tools: ALL_TOOLS },
+          id
         });
-        return;
+        break;
+
+      case 'tools/call': {
+        const vkApi = createVKApi(req);
+        const result = await handleToolCall(vkApi, params.name, params.arguments || {});
+        res.json({
+          jsonrpc: '2.0',
+      result: {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }]
+          },
+          id
+        });
+        break;
       }
 
-      let result;
-      switch (name) {
-        case 'post_to_wall': {
-          const ownerId = args.group_id ? `-${args.group_id}` : args.user_id;
-          result = await vkApi.postToWall({
-            message: args.message,
-            owner_id: ownerId,
-            attachments: args.attachments,
-            publish_date: args.publish_date,
-          });
-          res.json({ jsonrpc: '2.0', id, result: { post_id: result.post_id, message: 'Пост успешно опубликован!', owner_id: ownerId, target: args.group_id ? 'group' : 'user' } });
-          break;
-        }
-        case 'get_wall_posts': {
-          const ownerId = args.group_id ? `-${args.group_id}` : args.user_id;
-          result = await vkApi.getWallPosts({ owner_id: ownerId, count: args.count || 20, offset: args.offset || 0 });
-          res.json({ jsonrpc: '2.0', id, result: { count: result.count, posts: result.items.map(post => ({ id: post.id, text: post.text.substring(0, 100) + (post.text.length > 100 ? '...' : ''), date: post.date, likes: post.likes?.count || 0, reposts: post.reposts?.count || 0, comments: post.comments?.count || 0 })) } });
-          break;
-        }
-        case 'search_posts': {
-          const ownerId = args.group_id ? `-${args.group_id}` : undefined;
-          result = await vkApi.searchPosts({ query: args.query, owner_id: ownerId, count: args.count || 20, offset: args.offset || 0 });
-          res.json({ jsonrpc: '2.0', id, result: { count: result.count, posts: result.items.map(post => ({ id: post.id, text: post.text.substring(0, 100) + (post.text.length > 100 ? '...' : ''), date: post.date, likes: post.likes?.count || 0, reposts: post.reposts?.count || 0, comments: post.comments?.count || 0 })) } });
-          break;
-        }
-        case 'get_group_info': {
-          result = await vkApi.getGroupInfo(args.group_id);
-          const group = result && result[0];
-          if (!group) {
-            res.status(404).json({ jsonrpc: '2.0', id, error: { code: -32602, message: 'Group not found' } });
-            return;
-          }
-          res.json({ jsonrpc: '2.0', id, result: { id: group.id, name: group.name, screen_name: group.screen_name, type: group.type, members_count: group.members_count } });
-          break;
-        }
-        case 'get_user_info': {
-          result = await vkApi.getUserInfo(args.user_id);
-          const user = result && result[0];
-          if (!user) {
-            res.status(404).json({ jsonrpc: '2.0', id, error: { code: -32602, message: 'User not found' } });
-            return;
-          }
-          res.json({ jsonrpc: '2.0', id, result: { id: user.id, first_name: user.first_name, last_name: user.last_name, screen_name: user.screen_name, photo_100: user.photo_100 } });
-          break;
-        }
-        default:
-          res.status(400).json({ jsonrpc: '2.0', id, error: { code: -32601, message: `Unknown tool: ${name}` } });
-          return;
-      }
-    } catch (error) {
-      console.error('Error in root tools/call:', error);
-      res.status(500).json({ jsonrpc: '2.0', id, error: { code: -32603, message: error instanceof Error ? error.message : 'Неизвестная ошибка' } });
+      default:
+        res.json({
+          jsonrpc: '2.0',
+          error: { code: -32601, message: 'Method not found' },
+          id
+        });
     }
-  } else {
-    res.status(400).json({
+  } catch (error: any) {
+    console.error('Error in POST /mcp:', error);
+    res.json({
       jsonrpc: '2.0',
-      id: id,
       error: {
-        code: -32601,
-        message: 'Method not found'
-      }
+        code: -32603,
+        message: error.message || 'Internal error'
+      },
+      id: id || null
     });
   }
 });
 
-// Список всех доступных инструментов для Make.com
-app.get('/mcp/tools', (req, res) => {
+// DELETE /mcp - закрытие сессии
+app.delete('/mcp', (req, res) => {
+  const sessionId = req.headers['mcp-session-id'] as string;
+  
+  if (sessionId && sessions.has(sessionId)) {
+    sessions.delete(sessionId);
+    console.log(`Session closed: ${sessionId}`);
+  }
+  
+  res.status(204).send();
+});
+
+// ============================
+// N8N ЭНДПОИНТЫ
+// ============================
+
+// POST /n8n/webhook/:event - вебхуки для n8n
+app.post('/n8n/webhook/:event', async (req, res, next) => {
+  try {
+    const { event } = req.params;
+    const webhookSecret = req.headers['x-webhook-secret'];
+    
+    // Проверка секрета (опционально)
+    if (process.env.N8N_WEBHOOK_SECRET && webhookSecret !== process.env.N8N_WEBHOOK_SECRET) {
+      return sendErr(res, 401, 'AUTH_FAILED', 'Invalid webhook secret');
+    }
+
+    const vkApi = createVKApi(req);
+    const data = req.body;
+
+    console.log(`n8n webhook event: ${event}`, data);
+
+    // Обработка различных событий
+    switch (event) {
+      case 'post_created': {
+        const { message, group_id } = data;
+        const result = await vkApi.postToWall({
+          owner_id: group_id ? `-${group_id}` : undefined,
+          message,
+        });
+        sendOk(res, { post_id: result.post_id });
+          break;
+        }
+
+      case 'get_posts': {
+        const { group_id, count = 10 } = data;
+        const result = await vkApi.getWallPosts({
+          owner_id: group_id ? `-${group_id}` : undefined,
+          count,
+        });
+        sendOk(res, result);
+          break;
+        }
+
+      case 'search': {
+        const { query, group_id } = data;
+        const result = await vkApi.searchPosts({
+          query,
+          owner_id: group_id ? `-${group_id}` : undefined,
+        });
+        sendOk(res, result);
+          break;
+        }
+
+      default:
+        sendErr(res, 400, 'UNKNOWN_EVENT', `Unknown webhook event: ${event}`);
+    }
+  } catch (error: any) {
+    console.error('n8n webhook error:', error);
+    next(error);
+  }
+});
+
+// GET /n8n/poll/:resource - polling для n8n
+app.get('/n8n/poll/:resource', async (req, res, next) => {
+  try {
+    const { resource } = req.params;
+    const { group_id, count = 10, offset = 0, since } = req.query;
+    
+    const vkApi = createVKApi(req);
+
+    console.log(`n8n polling resource: ${resource}`, req.query);
+
+    switch (resource) {
+      case 'posts': {
+        const result = await vkApi.getWallPosts({
+          owner_id: group_id ? `-${group_id}` : undefined,
+          count: Number(count),
+          offset: Number(offset),
+        });
+        
+        // Фильтруем по времени, если указано
+        let items = result.items;
+        if (since) {
+          const sinceTime = new Date(since as string).getTime() / 1000;
+          items = items.filter((post: any) => post.date > sinceTime);
+        }
+        
+        sendOk(res, { ...result, items });
+          break;
+        }
+
+      case 'groups': {
+        const result = await vkApi.getGroupInfo(group_id as string);
+        sendOk(res, result);
+        break;
+      }
+
+      case 'members': {
+        const result = await vkApi.getGroupMembers({
+          group_id: group_id as string,
+          count: Number(count),
+          offset: Number(offset),
+        });
+        sendOk(res, result);
+          break;
+        }
+
+        default:
+        sendErr(res, 400, 'UNKNOWN_RESOURCE', `Unknown polling resource: ${resource}`);
+    }
+  } catch (error: any) {
+    console.error('n8n polling error:', error);
+    next(error);
+  }
+});
+
+// ============================
+// СЕРВИСНЫЕ ЭНДПОИНТЫ
+// ============================
+
+// GET /health - проверка здоровья
+app.get('/health', (req, res) => {
   res.json({
-    success: true,
-    data: {
-      tools: [
-        'post_to_wall',
-        'get_wall_posts',
-        'search_posts',
-        'get_group_info',
-        'get_user_info',
-        'get_post_stats',
-        'get_wall_by_id',
-        'get_comments',
-        'create_comment',
-        'delete_post',
-        'edit_post',
-        'add_like',
-        'delete_like',
-        'get_group_members',
-        'resolve_screen_name',
-        'upload_wall_photo_from_url',
-        'upload_video_from_url'
-      ],
-      count: 17,
-      description: 'All available VK API tools'
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    service: 'vkontakte-mcp-server',
+    version: '1.0.0',
+    environment: process.env.NODE_ENV || 'development',
+    port: PORT,
+    endpoints: {
+      mcp: {
+        'POST /mcp': 'JSON-RPC (initialize, tools/list, tools/call)',
+        'GET /mcp': 'SSE notifications (Streamable HTTP)',
+        'DELETE /mcp': 'Close session'
+      },
+      n8n: {
+        'POST /n8n/webhook/:event': 'Webhook events',
+        'GET /n8n/poll/:resource': 'Polling resources'
+      },
+      service: {
+        'GET /health': 'Health check',
+        'GET /mcp/info': 'Server information',
+        'GET /mcp/tools': 'List all tools'
+      }
     }
   });
 });
 
-// Информация о MCP сервере
+// GET /mcp/info - информация о сервере
 app.get('/mcp/info', (req, res) => {
   res.json({
     name: 'vkontakte-mcp-server',
     version: '1.0.0',
     description: 'MCP server for VKontakte (VK.com) integration',
-    transport: 'SSE + HTTP',
+    protocol: 'Streamable HTTP',
+    protocolVersion: '2025-03-26',
     capabilities: ['tools'],
-    tools: [
-      'post_to_wall',
-      'get_wall_posts',
-      'search_posts',
-      'get_group_info',
-      'get_user_info',
-      'get_post_stats',
-      'get_wall_by_id',
-      'get_comments',
-      'create_comment',
-      'delete_post',
-      'edit_post',
-      'add_like',
-      'delete_like',
-      'get_group_members',
-      'resolve_screen_name',
-      'upload_wall_photo_from_url',
-      'upload_video_from_url'
-    ],
-    make_com_integration: {
-      sse_endpoint: '/mcp/sse',
-      api_endpoint: '/mcp/api',
-      oauth_redirect: 'https://www.make.com/oauth/cb/mcp'
-    },
-    n8n_integration: {
-      webhook_endpoint: '/n8n/webhook/:event',
-      poll_endpoint: '/n8n/poll/:resource'
+    tools: ALL_TOOLS.map(t => t.name),
+    endpoints: {
+      mcp: '/mcp',
+      n8n_webhook: '/n8n/webhook/:event',
+      n8n_poll: '/n8n/poll/:resource',
+      health: '/health'
     }
   });
 });
 
-// Глобальный обработчик ошибок (последним, см. Express error-handling docs)
+// GET /mcp/tools - список всех инструментов
+app.get('/mcp/tools', (req, res) => {
+  res.json({
+    tools: ALL_TOOLS,
+    count: ALL_TOOLS.length
+  });
+});
+
+// GET / - корневой эндпоинт (только информационный)
+app.get('/', (req, res) => {
+  res.json({
+    message: 'VKontakte MCP Server',
+    version: '1.0.0',
+    documentation: {
+      mcp: 'Use POST /mcp for JSON-RPC and GET /mcp for SSE',
+      n8n: 'Use /n8n/webhook/:event and /n8n/poll/:resource',
+      info: 'See /mcp/info for server details',
+      tools: 'See /mcp/tools for available tools'
+    }
+  });
+});
+
+// Глобальный обработчик ошибок
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error('Unhandled error:', err);
-  // Для n8n REST маршрутов возвращаем унифицированный формат, иначе обычный JSON
-  if (res.headersSent) return;
-  const wantsRest = _req.path.startsWith('/n8n/');
-  if (wantsRest) {
-    return sendErr(res, Number(err?.status || 500), 'internal_error', err instanceof Error ? err.message : 'Internal Server Error');
-  }
-  res.status(Number(err?.status || 500)).json({ error: err instanceof Error ? err.message : 'Internal Server Error' });
+  console.error('Global error handler:', err);
+  
+  const status = err.status || 500;
+  const message = err.message || 'Internal Server Error';
+  const code = err.code || 'INTERNAL_ERROR';
+  
+  res.status(status).json({
+    success: false,
+    error: {
+      code,
+      message,
+      ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+    }
+  });
 });
 
 // Запуск сервера
-app.listen(Number(PORT), '0.0.0.0', () => {
-  console.log(`🚀 VKontakte MCP Server для Make.com запущен на порту ${PORT}`);
-  console.log(`📡 SSE endpoint: http://0.0.0.0:${PORT}/mcp/sse`);
-  console.log(`🔧 API endpoint: http://0.0.0.0:${PORT}/mcp/api`);
-  console.log(`🏥 Health check: http://0.0.0.0:${PORT}/health`);
-  console.log(`ℹ️  MCP info: http://0.0.0.0:${PORT}/mcp/info`);
-});
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('Получен SIGTERM, завершение работы...');
-  process.exit(0);
-});
-
-process.on('SIGINT', () => {
-  console.log('Получен SIGINT, завершение работы...');
-  process.exit(0);
+app.listen(PORT, () => {
+  console.log(`✅ VKontakte MCP server running on port ${PORT}`);
+  console.log(`📍 Endpoints:`);
+  console.log(`   - MCP: POST /mcp, GET /mcp`);
+  console.log(`   - n8n: /n8n/webhook/:event, /n8n/poll/:resource`);
+  console.log(`   - Info: /health, /mcp/info, /mcp/tools`);
 });

@@ -32,10 +32,10 @@ npm run start:make
 ```
 
 ### **3. Проверка endpoints:**
-- **SSE**: `http://localhost:3000/mcp/sse`
-- **API**: `http://localhost:3000/mcp/api`
+- **MCP (Streamable HTTP)**: `http://localhost:3000/mcp`
 - **Health**: `http://localhost:3000/health`
 - **Info**: `http://localhost:3000/mcp/info`
+- **Tools**: `http://localhost:3000/mcp/tools`
 
 ## 🔗 Настройка в Make.com
 
@@ -50,14 +50,14 @@ npm run start:make
 ```
 Connection Name: VKontakte MCP Server
 MCP Server: + New MCP Server
-URL: http://localhost:3000/mcp/sse
+URL: http://localhost:3000/mcp
 ```
 
 #### **Для production (Railway):**
 ```
 Connection Name: VKontakte MCP Server
 MCP Server: + New MCP Server
-URL: https://your-app-name.railway.app/mcp/sse
+URL: https://your-app-name.railway.app/mcp
 ```
 
 ### **Шаг 3: Аутентификация**

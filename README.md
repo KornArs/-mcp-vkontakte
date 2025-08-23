@@ -59,7 +59,7 @@ https://your-app-name.railway.app/mcp/sse
 1. **Откройте Make MCP Client** в вашем сценарии
 2. **Создайте новое подключение**
 3. **В поле MCP Server** выберите "+ New MCP server"
-4. **Введите URL:** `https://your-app-name.railway.app/mcp/sse`
+4. **Введите URL:** `https://your-app-name.railway.app/mcp`
 5. **В поле API key / Access token** вставьте ваш VK Access Token
 6. **Сохраните подключение**
 

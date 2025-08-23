@@ -126,24 +126,10 @@ app.get('/mcp/sse', (req, res) => {
       inputSchema: {
         type: 'object',
         properties: {
-          group_id: {
-            type: 'string',
-            description: 'ID группы',
-          },
-          user_id: {
-            type: 'string',
-            description: 'ID пользователя',
-          },
-          count: {
-            type: 'number',
-            description: 'Количество постов для получения (по умолчанию 20)',
-            default: 20,
-          },
-          offset: {
-            type: 'number',
-            description: 'Смещение от начала (по умолчанию 0)',
-            default: 0,
-          },
+          group_id: { type: 'string', description: 'ID группы' },
+          user_id: { type: 'string', description: 'ID пользователя' },
+          count: { type: 'number', description: 'Количество постов для получения (по умолчанию 20)', default: 20 },
+          offset: { type: 'number', description: 'Смещение от начала (по умолчанию 0)', default: 0 },
         },
       },
     },
@@ -153,25 +139,10 @@ app.get('/mcp/sse', (req, res) => {
       inputSchema: {
         type: 'object',
         properties: {
-          query: {
-            type: 'string',
-            description: 'Поисковый запрос',
-            required: true,
-          },
-          group_id: {
-            type: 'string',
-            description: 'ID группы для поиска',
-          },
-          count: {
-            type: 'number',
-            description: 'Количество результатов',
-            default: 20,
-          },
-          offset: {
-            type: 'number',
-            description: 'Смещение от начала',
-            default: 0,
-          },
+          query: { type: 'string', description: 'Поисковый запрос', required: true },
+          group_id: { type: 'string', description: 'ID группы для поиска' },
+          count: { type: 'number', description: 'Количество результатов', default: 20 },
+          offset: { type: 'number', description: 'Смещение от начала', default: 0 },
         },
         required: ['query'],
       },
@@ -182,11 +153,7 @@ app.get('/mcp/sse', (req, res) => {
       inputSchema: {
         type: 'object',
         properties: {
-          group_id: {
-            type: 'string',
-            description: 'ID группы',
-            required: true,
-          },
+          group_id: { type: 'string', description: 'ID группы', required: true },
         },
         required: ['group_id'],
       },
@@ -197,13 +164,160 @@ app.get('/mcp/sse', (req, res) => {
       inputSchema: {
         type: 'object',
         properties: {
-          user_id: {
-            type: 'string',
-            description: 'ID пользователя',
-            required: true,
-          },
+          user_id: { type: 'string', description: 'ID пользователя', required: true },
         },
         required: ['user_id'],
+      },
+    },
+    {
+      name: 'get_post_stats',
+      description: 'Получает статистику поста',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          post_id: { type: 'string', description: 'ID поста', required: true },
+          group_id: { type: 'string', description: 'ID группы' },
+        },
+        required: ['post_id'],
+      },
+    },
+    {
+      name: 'get_wall_by_id',
+      description: 'Получает стену по ID',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          wall_id: { type: 'string', description: 'ID стены', required: true },
+          count: { type: 'number', description: 'Количество постов', default: 20 },
+          offset: { type: 'number', description: 'Смещение', default: 0 },
+        },
+        required: ['wall_id'],
+      },
+    },
+    {
+      name: 'get_comments',
+      description: 'Получает комментарии к посту',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          post_id: { type: 'string', description: 'ID поста', required: true },
+          group_id: { type: 'string', description: 'ID группы' },
+          count: { type: 'number', description: 'Количество комментариев', default: 20 },
+          offset: { type: 'number', description: 'Смещение', default: 0 },
+        },
+        required: ['post_id'],
+      },
+    },
+    {
+      name: 'create_comment',
+      description: 'Создает комментарий к посту',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          post_id: { type: 'string', description: 'ID поста', required: true },
+          message: { type: 'string', description: 'Текст комментария', required: true },
+          group_id: { type: 'string', description: 'ID группы' },
+        },
+        required: ['post_id', 'message'],
+      },
+    },
+    {
+      name: 'delete_post',
+      description: 'Удаляет пост',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          post_id: { type: 'string', description: 'ID поста', required: true },
+          group_id: { type: 'string', description: 'ID группы' },
+        },
+        required: ['post_id'],
+      },
+    },
+    {
+      name: 'edit_post',
+      description: 'Редактирует пост',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          post_id: { type: 'string', description: 'ID поста', required: true },
+          message: { type: 'string', description: 'Новый текст поста', required: true },
+          group_id: { type: 'string', description: 'ID группы' },
+        },
+        required: ['post_id', 'message'],
+      },
+    },
+    {
+      name: 'add_like',
+      description: 'Ставит лайк посту',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          post_id: { type: 'string', description: 'ID поста', required: true },
+          group_id: { type: 'string', description: 'ID группы' },
+        },
+        required: ['post_id'],
+      },
+    },
+    {
+      name: 'delete_like',
+      description: 'Убирает лайк с поста',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          post_id: { type: 'string', description: 'ID поста', required: true },
+          group_id: { type: 'string', description: 'ID группы' },
+        },
+        required: ['post_id'],
+      },
+    },
+    {
+      name: 'get_group_members',
+      description: 'Получает список участников группы',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          group_id: { type: 'string', description: 'ID группы', required: true },
+          count: { type: 'number', description: 'Количество участников', default: 20 },
+          offset: { type: 'number', description: 'Смещение', default: 0 },
+        },
+        required: ['group_id'],
+      },
+    },
+    {
+      name: 'resolve_screen_name',
+      description: 'Разрешает screen_name в ID',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          screen_name: { type: 'string', description: 'Screen name для разрешения', required: true },
+        },
+        required: ['screen_name'],
+      },
+    },
+    {
+      name: 'upload_wall_photo_from_url',
+      description: 'Загружает фото на стену из URL',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          photo_url: { type: 'string', description: 'URL фото', required: true },
+          group_id: { type: 'string', description: 'ID группы' },
+        },
+        required: ['photo_url'],
+      },
+    },
+    {
+      name: 'upload_video_from_url',
+      description: 'Загружает видео из URL',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          video_url: { type: 'string', description: 'URL видео', required: true },
+          name: { type: 'string', description: 'Название видео', required: true },
+          description: { type: 'string', description: 'Описание видео' },
+          group_id: { type: 'string', description: 'ID группы' },
+        },
+        required: ['video_url', 'name'],
       },
     },
   ];
@@ -1073,6 +1187,36 @@ app.post('/', async (req, res) => {
   }
 });
 
+// Список всех доступных инструментов для Make.com
+app.get('/mcp/tools', (req, res) => {
+  res.json({
+    success: true,
+    data: {
+      tools: [
+        'post_to_wall',
+        'get_wall_posts',
+        'search_posts',
+        'get_group_info',
+        'get_user_info',
+        'get_post_stats',
+        'get_wall_by_id',
+        'get_comments',
+        'create_comment',
+        'delete_post',
+        'edit_post',
+        'add_like',
+        'delete_like',
+        'get_group_members',
+        'resolve_screen_name',
+        'upload_wall_photo_from_url',
+        'upload_video_from_url'
+      ],
+      count: 17,
+      description: 'All available VK API tools'
+    }
+  });
+});
+
 // Информация о MCP сервере
 app.get('/mcp/info', (req, res) => {
   res.json({
@@ -1086,7 +1230,19 @@ app.get('/mcp/info', (req, res) => {
       'get_wall_posts',
       'search_posts',
       'get_group_info',
-      'get_user_info'
+      'get_user_info',
+      'get_post_stats',
+      'get_wall_by_id',
+      'get_comments',
+      'create_comment',
+      'delete_post',
+      'edit_post',
+      'add_like',
+      'delete_like',
+      'get_group_members',
+      'resolve_screen_name',
+      'upload_wall_photo_from_url',
+      'upload_video_from_url'
     ],
     make_com_integration: {
       sse_endpoint: '/mcp/sse',

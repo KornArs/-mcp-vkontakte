@@ -391,7 +391,7 @@ class VKontakteMCPServer {
               content: [
                 {
                   type: 'text',
-                  text: `📊 Информация о группе:\nНазвание: ${group.name}\nID: ${group.id}\nТип: ${group.type}\nУчастников: ${group.members_count}`,
+                  text: `📊 Информация о группе:\nНазвание: ${group.name}\nID: ${group.id}\nУчастников: ${group.members_count}`,
                 },
               ],
             };

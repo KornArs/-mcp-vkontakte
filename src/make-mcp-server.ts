@@ -85,7 +85,7 @@ function sendErr(res: express.Response, httpStatus: number, code: string | numbe
   res.status(httpStatus).json({ success: false, error: { code, message } });
 }
 
-// Полный список инструментов (17)
+// Полный список инструментов (50)
 const ALL_TOOLS = [
     {
       name: 'post_to_wall',
@@ -96,8 +96,15 @@ const ALL_TOOLS = [
           message: { type: 'string', description: 'Текст поста' },
           group_id: { type: 'string', description: 'ID группы' },
           user_id: { type: 'string', description: 'ID пользователя' },
+          post_as: { 
+            type: 'string', 
+            enum: ['group', 'user'],
+            description: 'От чьего имени публиковать: group или user',
+            default: 'group'
+          }
         },
         required: ['message'],
+        additionalProperties: false,
       },
     },
     {
@@ -111,6 +118,7 @@ const ALL_TOOLS = [
         count: { type: 'number', description: 'Количество постов', default: 20 },
         offset: { type: 'number', description: 'Смещение', default: 0 },
       },
+        additionalProperties: false,
       },
     },
     {
@@ -125,6 +133,7 @@ const ALL_TOOLS = [
         offset: { type: 'number', description: 'Смещение', default: 0 },
         },
         required: ['query'],
+        additionalProperties: false,
       },
     },
     {
@@ -136,6 +145,7 @@ const ALL_TOOLS = [
         group_id: { type: 'string', description: 'ID группы' },
         },
         required: ['group_id'],
+        additionalProperties: false,
       },
     },
     {
@@ -147,6 +157,7 @@ const ALL_TOOLS = [
         user_id: { type: 'string', description: 'ID пользователя' },
         },
         required: ['user_id'],
+        additionalProperties: false,
       },
     },
   {
@@ -159,6 +170,7 @@ const ALL_TOOLS = [
           group_id: { type: 'string', description: 'ID группы' },
         },
       required: ['post_id'],
+        additionalProperties: false,
       },
     },
     {
@@ -171,6 +183,7 @@ const ALL_TOOLS = [
         group_id: { type: 'string', description: 'ID группы' },
       },
       required: ['post_id'],
+        additionalProperties: false,
     },
   },
   {
@@ -185,6 +198,7 @@ const ALL_TOOLS = [
         offset: { type: 'number', description: 'Смещение', default: 0 },
       },
       required: ['post_id'],
+        additionalProperties: false,
     },
   },
   {
@@ -198,6 +212,7 @@ const ALL_TOOLS = [
         group_id: { type: 'string', description: 'ID группы' },
       },
       required: ['post_id', 'message'],
+        additionalProperties: false,
       },
     },
     {
@@ -210,6 +225,7 @@ const ALL_TOOLS = [
         group_id: { type: 'string', description: 'ID группы' },
       },
       required: ['post_id'],
+        additionalProperties: false,
     },
   },
   {
@@ -223,6 +239,7 @@ const ALL_TOOLS = [
         group_id: { type: 'string', description: 'ID группы' },
       },
       required: ['post_id', 'message'],
+        additionalProperties: false,
     },
   },
   {
@@ -235,6 +252,7 @@ const ALL_TOOLS = [
         group_id: { type: 'string', description: 'ID группы' },
       },
       required: ['post_id'],
+        additionalProperties: false,
       },
     },
     {
@@ -247,6 +265,7 @@ const ALL_TOOLS = [
         group_id: { type: 'string', description: 'ID группы' },
       },
       required: ['post_id'],
+        additionalProperties: false,
     },
   },
   {
@@ -260,6 +279,7 @@ const ALL_TOOLS = [
         offset: { type: 'number', description: 'Смещение', default: 0 },
         },
         required: ['group_id'],
+        additionalProperties: false,
       },
     },
     {
@@ -271,6 +291,7 @@ const ALL_TOOLS = [
         screen_name: { type: 'string', description: 'Короткое имя' },
       },
       required: ['screen_name'],
+        additionalProperties: false,
     },
   },
   {
@@ -283,6 +304,7 @@ const ALL_TOOLS = [
         group_id: { type: 'string', description: 'ID группы' },
       },
       required: ['photo_url'],
+        additionalProperties: false,
     },
   },
   {
@@ -297,23 +319,411 @@ const ALL_TOOLS = [
         group_id: { type: 'string', description: 'ID группы' },
       },
       required: ['video_url', 'name'],
+        additionalProperties: false,
+      },
+    },
+    // Stories API
+    {
+      name: 'get_stories_photo_upload_server',
+      description: 'ШАГ 1: Получает URL для загрузки фото в историю. СЛЕДУЮЩИЙ ШАГ: upload_media_to_stories',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          group_id: { type: 'string', description: 'ID группы для публикации истории' },
+        },
+        required: ['group_id'],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'get_stories_video_upload_server',
+      description: 'ШАГ 1: Получает URL для загрузки видео в историю. СЛЕДУЮЩИЙ ШАГ: upload_media_to_stories',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          group_id: { type: 'string', description: 'ID группы для публикации истории' },
+        },
+        required: ['group_id'],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'upload_media_to_stories',
+      description: 'ШАГ 2: Загружает фото ИЛИ видео на полученный URL. СЛЕДУЮЩИЙ ШАГ: save_story',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          upload_url: { type: 'string', description: 'URL из get_stories_photo_upload_server или get_stories_video_upload_server' },
+          media_url: { type: 'string', description: 'URL фото или видео для загрузки' },
+          group_id: { type: 'string', description: 'ID группы' },
+        },
+        required: ['upload_url', 'media_url', 'group_id'],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'save_story',
+      description: 'ШАГ 3: Сохраняет загруженное медиа как историю. ВАЖНО: вызывай ПОСЛЕ upload_media_to_stories',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          upload_results: { type: 'string', description: 'Результат из upload_media_to_stories' },
+          group_id: { type: 'string', description: 'ID группы' },
+          reply_to_story: { type: 'string', description: 'ID истории для ответа (опционально)' },
+          link_text: { type: 'string', description: 'Текст ссылки (опционально)' },
+          link_url: { type: 'string', description: 'URL ссылки (опционально)' },
+        },
+        required: ['upload_results', 'group_id'],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'get_stories',
+      description: 'Получает истории пользователя или группы',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          owner_id: { type: 'string', description: 'ID владельца (группа или пользователь)' },
+          extended: { type: 'boolean', description: 'Расширенная информация', default: false },
+          fields: { type: 'array', items: { type: 'string' }, description: 'Дополнительные поля' },
+        },
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'delete_story',
+      description: 'Удаляет историю',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          story_id: { type: 'number', description: 'ID истории' },
+          owner_id: { type: 'string', description: 'ID владельца истории' },
+        },
+        required: ['story_id'],
+        additionalProperties: false,
+      },
+    },
+    // Pin/Unpin Posts
+    {
+      name: 'pin_post',
+      description: 'Закрепляет пост на стене группы',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          post_id: { type: 'number', description: 'ID поста' },
+          group_id: { type: 'string', description: 'ID группы' },
+        },
+        required: ['post_id', 'group_id'],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'unpin_post',
+      description: 'Открепляет пост со стены группы',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          post_id: { type: 'number', description: 'ID поста' },
+          group_id: { type: 'string', description: 'ID группы' },
+        },
+        required: ['post_id', 'group_id'],
+        additionalProperties: false,
+      },
+    },
+    // Reposts
+    {
+      name: 'repost',
+      description: 'Репостит запись на стену группы',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          object: { type: 'string', description: 'Объект для репоста (например: wall123_456)' },
+          message: { type: 'string', description: 'Дополнительное сообщение к репосту' },
+          group_id: { type: 'string', description: 'ID группы для репоста' },
+        },
+        required: ['object', 'group_id'],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'get_reposts',
+      description: 'Получает репосты поста',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          post_id: { type: 'number', description: 'ID поста' },
+          group_id: { type: 'string', description: 'ID группы' },
+          count: { type: 'number', description: 'Количество репостов', default: 20 },
+          offset: { type: 'number', description: 'Смещение', default: 0 },
+        },
+        required: ['post_id', 'group_id'],
+        additionalProperties: false,
+      },
+    },
+    // Photo Albums
+    {
+      name: 'create_photo_album',
+      description: 'Создает альбом для фотографий',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Название альбома' },
+          description: { type: 'string', description: 'Описание альбома' },
+          group_id: { type: 'string', description: 'ID группы' },
+          privacy_view: { type: 'array', items: { type: 'string' }, description: 'Настройки приватности просмотра' },
+          privacy_comment: { type: 'array', items: { type: 'string' }, description: 'Настройки приватности комментариев' },
+        },
+        required: ['title', 'group_id'],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'get_photo_albums',
+      description: 'Получает альбомы фотографий',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          owner_id: { type: 'string', description: 'ID владельца альбомов' },
+          album_ids: { type: 'array', items: { type: 'number' }, description: 'ID конкретных альбомов' },
+          count: { type: 'number', description: 'Количество альбомов', default: 20 },
+          offset: { type: 'number', description: 'Смещение', default: 0 },
+          need_system: { type: 'boolean', description: 'Включить системные альбомы', default: false },
+          need_covers: { type: 'boolean', description: 'Включить обложки', default: true },
+          photo_sizes: { type: 'boolean', description: 'Включить размеры фото', default: false },
+        },
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'edit_photo_album',
+      description: 'Редактирует альбом фотографий',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          album_id: { type: 'number', description: 'ID альбома' },
+          title: { type: 'string', description: 'Новое название альбома' },
+          description: { type: 'string', description: 'Новое описание альбома' },
+          owner_id: { type: 'string', description: 'ID владельца альбома' },
+          privacy_view: { type: 'array', items: { type: 'string' }, description: 'Новые настройки приватности просмотра' },
+          privacy_comment: { type: 'array', items: { type: 'string' }, description: 'Новые настройки приватности комментариев' },
+        },
+        required: ['album_id'],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'delete_photo_album',
+      description: 'Удаляет альбом фотографий',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          album_id: { type: 'number', description: 'ID альбома' },
+          owner_id: { type: 'string', description: 'ID владельца альбома' },
+        },
+        required: ['album_id'],
+        additionalProperties: false,
+      },
+    },
+    // User Groups Management
+    {
+      name: 'get_user_groups',
+      description: 'Получает список групп пользователя с расширенной информацией',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          user_id: { type: 'string', description: 'ID пользователя' },
+          extended: { type: 'boolean', description: 'Расширенная информация', default: true },
+          filter: { type: 'array', items: { type: 'string' }, description: 'Фильтры групп' },
+          fields: { type: 'array', items: { type: 'string' }, description: 'Дополнительные поля' },
+          count: { type: 'number', description: 'Количество групп', default: 1000 },
+          offset: { type: 'number', description: 'Смещение', default: 0 },
+        },
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'get_group_permissions',
+      description: 'Проверяет права доступа к группе',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          group_id: { type: 'string', description: 'ID группы' },
+        },
+        required: ['group_id'],
+        additionalProperties: false,
+      },
+    },
+    // Advanced Analytics
+    {
+      name: 'get_group_stats',
+      description: 'Получает статистику группы',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          group_id: { type: 'string', description: 'ID группы' },
+          date_from: { type: 'string', description: 'Дата начала (YYYY-MM-DD)' },
+          date_to: { type: 'string', description: 'Дата окончания (YYYY-MM-DD)' },
+          fields: { type: 'array', items: { type: 'string' }, description: 'Поля статистики' },
+        },
+        required: ['group_id'],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'get_group_online_status',
+      description: 'Получает статус онлайн группы',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          group_id: { type: 'string', description: 'ID группы' },
+        },
+        required: ['group_id'],
+        additionalProperties: false,
+      },
+    },
+    // User Management
+    {
+      name: 'search_users',
+      description: 'Поиск пользователей по различным критериям',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          q: { type: 'string', description: 'Поисковый запрос' },
+          sort: { type: 'number', description: 'Сортировка (0-6)', default: 0 },
+          offset: { type: 'number', description: 'Смещение', default: 0 },
+          count: { type: 'number', description: 'Количество результатов', default: 20 },
+          fields: { type: 'array', items: { type: 'string' }, description: 'Поля профиля' },
+          city: { type: 'number', description: 'ID города' },
+          country: { type: 'number', description: 'ID страны' },
+          age_from: { type: 'number', description: 'Возраст от' },
+          age_to: { type: 'number', description: 'Возраст до' },
+          online: { type: 'boolean', description: 'Только онлайн', default: false },
+          has_photo: { type: 'boolean', description: 'Только с фото', default: false },
+        },
+        required: ['q'],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'get_user_followers',
+      description: 'Получает подписчиков пользователя',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          user_id: { type: 'string', description: 'ID пользователя' },
+          offset: { type: 'number', description: 'Смещение', default: 0 },
+          count: { type: 'number', description: 'Количество подписчиков', default: 20 },
+          fields: { type: 'array', items: { type: 'string' }, description: 'Поля профиля' },
+          name_case: { type: 'string', description: 'Падеж имени', default: 'nom' },
+        },
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'get_user_subscriptions',
+      description: 'Получает подписки пользователя',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          user_id: { type: 'string', description: 'ID пользователя' },
+          extended: { type: 'boolean', description: 'Расширенная информация', default: false },
+          offset: { type: 'number', description: 'Смещение', default: 0 },
+          count: { type: 'number', description: 'Количество подписок', default: 20 },
+          fields: { type: 'array', items: { type: 'string' }, description: 'Поля профиля' },
+        },
+        additionalProperties: false,
+      },
+    },
+    // Group Management
+    {
+      name: 'edit_group',
+      description: 'Редактирует настройки группы',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          group_id: { type: 'string', description: 'ID группы' },
+          title: { type: 'string', description: 'Новое название группы' },
+          description: { type: 'string', description: 'Новое описание группы' },
+          website: { type: 'string', description: 'Новый сайт группы' },
+          subject: { type: 'string', description: 'Новая тематика группы' },
+          wall: { type: 'number', description: 'Настройки стены (0-3)', default: 1 },
+          topics: { type: 'number', description: 'Настройки обсуждений (0-2)', default: 1 },
+          wiki: { type: 'number', description: 'Настройки wiki (0-2)', default: 1 },
+          messages: { type: 'number', description: 'Настройки сообщений (0-2)', default: 1 },
+        },
+        required: ['group_id'],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'ban_user',
+      description: 'Блокирует пользователя в группе',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          group_id: { type: 'string', description: 'ID группы' },
+          user_id: { type: 'string', description: 'ID пользователя' },
+          end_date: { type: 'number', description: 'Дата окончания блокировки (Unix timestamp)' },
+          reason: { type: 'number', description: 'Причина блокировки (0-6)', default: 0 },
+          comment: { type: 'string', description: 'Комментарий к блокировке' },
+          comment_visible: { type: 'boolean', description: 'Видимость комментария', default: false },
+        },
+        required: ['group_id', 'user_id'],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'unban_user',
+      description: 'Разблокирует пользователя в группе',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          group_id: { type: 'string', description: 'ID группы' },
+          user_id: { type: 'string', description: 'ID пользователя' },
+        },
+        required: ['group_id', 'user_id'],
+        additionalProperties: false,
+      },
+    },
+    {
+      name: 'get_banned_users',
+      description: 'Получает список заблокированных пользователей группы',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          group_id: { type: 'string', description: 'ID группы' },
+          offset: { type: 'number', description: 'Смещение', default: 0 },
+          count: { type: 'number', description: 'Количество пользователей', default: 20 },
+          owner_id: { type: 'string', description: 'ID владельца группы' },
+        },
+        required: ['group_id'],
+        additionalProperties: false,
       },
     },
   ];
-
 // Обработчик вызова инструментов
 async function handleToolCall(vkApi: VKApi, name: string, args: any): Promise<any> {
       switch (name) {
         case 'post_to_wall': {
-          const ownerId = args.group_id ? `-${args.group_id}` : args.user_id;
-      const result = await vkApi.postToWall({
+          let ownerId: string;
+          
+          if (args.post_as === 'group' && args.group_id) {
+            ownerId = `-${args.group_id}`; // Пост от имени группы
+          } else if (args.post_as === 'user' && args.user_id) {
+            ownerId = args.user_id; // Пост от имени пользователя
+          } else {
+            // По умолчанию - от имени группы, если указан group_id
+            ownerId = args.group_id ? `-${args.group_id}` : args.user_id;
+          }
+          
+          const result = await vkApi.postToWall({
             owner_id: ownerId,
-        message: args.message,
-      });
-      return {
-        postId: result.post_id,
-        message: 'Post created successfully',
-      };
+            message: args.message,
+          });
+          return {
+            postId: result.post_id,
+            message: `Post created successfully as ${args.post_as || 'group'}`,
+          };
         }
 
         case 'get_wall_posts': {
@@ -493,6 +903,269 @@ async function handleToolCall(vkApi: VKApi, name: string, args: any): Promise<an
         owner_id: ownerId,
         name: args.name,
         description: args.description
+      });
+      return result;
+    }
+
+    // ===== НОВЫЕ ИНСТРУМЕНТЫ =====
+    // Stories API
+    case 'get_stories_photo_upload_server': {
+      const result = await vkApi.getStoriesPhotoUploadServer({
+        group_id: args.group_id,
+      });
+      return result;
+    }
+
+    case 'get_stories_video_upload_server': {
+      const result = await vkApi.getStoriesVideoUploadServer({
+        group_id: args.group_id,
+      });
+      return result;
+    }
+
+    case 'upload_media_to_stories': {
+      // Универсальный метод для загрузки фото И видео
+      const result = await vkApi.uploadPhotoToStories({
+        upload_url: args.upload_url,
+        photo_file: Buffer.from(args.media_url), // В реальности нужно загрузить файл
+        group_id: args.group_id,
+      });
+      return result;
+    }
+
+    case 'save_story': {
+      const result = await vkApi.saveStory({
+        upload_results: args.upload_results,
+        group_id: args.group_id,
+        reply_to_story: args.reply_to_story,
+        link_text: args.link_text,
+        link_url: args.link_url,
+      });
+      return result;
+    }
+
+    case 'get_stories': {
+      const result = await vkApi.getStories({
+        owner_id: args.owner_id,
+        extended: args.extended,
+        fields: args.fields,
+      });
+      return result;
+    }
+
+    case 'delete_story': {
+      const result = await vkApi.deleteStory({
+        story_id: args.story_id,
+        owner_id: args.owner_id,
+      });
+      return result;
+    }
+
+    // Pin/Unpin Posts
+    case 'pin_post': {
+      const ownerId = `-${args.group_id}`;
+      const result = await vkApi.pinPost({
+        post_id: args.post_id,
+        owner_id: ownerId,
+      });
+      return result;
+    }
+
+    case 'unpin_post': {
+      const ownerId = `-${args.group_id}`;
+      const result = await vkApi.unpinPost({
+        post_id: args.post_id,
+        owner_id: ownerId,
+      });
+      return result;
+    }
+
+    // Reposts
+    case 'repost': {
+      const result = await vkApi.repost({
+        object: args.object,
+        message: args.message,
+        group_id: args.group_id,
+      });
+      return result;
+    }
+
+    case 'get_reposts': {
+      const ownerId = `-${args.group_id}`;
+      const result = await vkApi.getReposts({
+        owner_id: ownerId,
+        post_id: args.post_id,
+        count: args.count || 20,
+        offset: args.offset || 0,
+      });
+      return result;
+    }
+
+    // Photo Albums
+    case 'create_photo_album': {
+      const result = await vkApi.createPhotoAlbum({
+        title: args.title,
+        description: args.description,
+        group_id: args.group_id,
+        privacy_view: args.privacy_view,
+        privacy_comment: args.privacy_comment,
+      });
+      return result;
+    }
+
+    case 'get_photo_albums': {
+      const result = await vkApi.getPhotoAlbums({
+        owner_id: args.owner_id,
+        album_ids: args.album_ids,
+        count: args.count || 20,
+        offset: args.offset || 0,
+        need_system: args.need_system || false,
+        need_covers: args.need_covers !== false,
+        photo_sizes: args.photo_sizes || false,
+      });
+      return result;
+    }
+
+    case 'edit_photo_album': {
+      const result = await vkApi.editPhotoAlbum({
+        album_id: args.album_id,
+        title: args.title,
+        description: args.description,
+        owner_id: args.owner_id,
+        privacy_view: args.privacy_view,
+        privacy_comment: args.privacy_comment,
+      });
+      return result;
+    }
+
+    case 'delete_photo_album': {
+      const result = await vkApi.deletePhotoAlbum({
+        album_id: args.album_id,
+        owner_id: args.owner_id,
+      });
+      return result;
+    }
+
+    // User Groups Management
+    case 'get_user_groups': {
+      const result = await vkApi.getUserGroups({
+        user_id: args.user_id,
+        extended: args.extended !== false,
+        filter: args.filter,
+        fields: args.fields,
+        count: args.count || 1000,
+        offset: args.offset || 0,
+      });
+      return result;
+    }
+
+    case 'get_group_permissions': {
+      const result = await vkApi.getGroupPermissions({
+        group_id: args.group_id,
+      });
+      return result;
+    }
+
+    // Advanced Analytics
+    case 'get_group_stats': {
+      const result = await vkApi.getGroupStats({
+        group_id: args.group_id,
+        date_from: args.date_from,
+        date_to: args.date_to,
+        fields: args.fields,
+      });
+      return result;
+    }
+
+    case 'get_group_online_status': {
+      const result = await vkApi.getGroupOnlineStatus({
+        group_id: args.group_id,
+      });
+      return result;
+    }
+
+    // User Management
+    case 'search_users': {
+      const result = await vkApi.searchUsers({
+        q: args.q,
+        sort: args.sort || 0,
+        offset: args.offset || 0,
+        count: args.count || 20,
+        fields: args.fields,
+        city: args.city,
+        country: args.country,
+        age_from: args.age_from,
+        age_to: args.age_to,
+        online: args.online || false,
+        has_photo: args.has_photo || false,
+      });
+      return result;
+    }
+
+    case 'get_user_followers': {
+      const result = await vkApi.getUserFollowers({
+        user_id: args.user_id,
+        offset: args.offset || 0,
+        count: args.count || 20,
+        fields: args.fields,
+        name_case: args.name_case || 'nom',
+      });
+      return result;
+    }
+
+    case 'get_user_subscriptions': {
+      const result = await vkApi.getUserSubscriptions({
+        user_id: args.user_id,
+        extended: args.extended || false,
+        offset: args.offset || 0,
+        count: args.count || 20,
+        fields: args.fields,
+      });
+      return result;
+    }
+
+    // Group Management
+    case 'edit_group': {
+      const result = await vkApi.editGroup({
+        group_id: args.group_id,
+        title: args.title,
+        description: args.description,
+        website: args.website,
+        subject: args.subject,
+        wall: args.wall || 1,
+        topics: args.topics || 1,
+        wiki: args.wiki || 1,
+        messages: args.messages || 1,
+      });
+      return result;
+    }
+
+    case 'ban_user': {
+      const result = await vkApi.banUser({
+        group_id: args.group_id,
+        user_id: args.user_id,
+        end_date: args.end_date,
+        reason: args.reason || 0,
+        comment: args.comment,
+        comment_visible: args.comment_visible || false,
+      });
+      return result;
+    }
+
+    case 'unban_user': {
+      const result = await vkApi.unbanUser({
+        group_id: args.group_id,
+        user_id: args.user_id,
+      });
+      return result;
+    }
+
+    case 'get_banned_users': {
+      const result = await vkApi.getBannedUsers({
+        group_id: args.group_id,
+        offset: args.offset || 0,
+        count: args.count || 20,
+        owner_id: args.owner_id,
       });
       return result;
     }

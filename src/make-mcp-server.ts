@@ -84,7 +84,7 @@ function sendErr(res: express.Response, httpStatus: number, code: string | numbe
 // MCP SSE endpoint для Make.com
 app.get('/mcp/sse', (req, res) => {
   console.log('Client connected to SSE');
-  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
@@ -366,149 +366,8 @@ app.post('/mcp/sse', async (req, res) => {
 
 // SSE алиас для совместимости с HTTP MCP клиентами (Cursor ожидает /sse)
 app.get('/sse', (req, res) => {
-  console.log('Client connected to SSE (alias /sse)');
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders();
-
-  res.write(`data: ${JSON.stringify({
-    jsonrpc: '2.0',
-    id: null,
-    method: 'notifications/serverInfo',
-    params: {
-      name: 'vkontakte-mcp-server',
-      version: '1.0.0',
-      description: 'MCP server for VKontakte (VK.com) integration',
-      transport: 'SSE + HTTP',
-      capabilities: ['tools']
-    }
-  })}\n\n`);
-
-  const tools = [
-    {
-      name: 'post_to_wall',
-      description: 'Публикует пост на стену пользователя или группы ВКонтакте',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          message: { type: 'string', description: 'Текст поста' },
-          group_id: { type: 'string', description: 'ID группы' },
-          user_id: { type: 'string', description: 'ID пользователя' },
-          attachments: { type: 'array', items: { type: 'string' }, description: 'Массив вложений (ссылки на медиа)' },
-          publish_date: { type: 'number', description: 'Время публикации (Unix timestamp)' }
-        },
-        required: ['message'],
-      },
-    },
-    {
-      name: 'get_wall_posts',
-      description: 'Получает посты со стены пользователя или группы',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          group_id: {
-            type: 'string',
-            description: 'ID группы',
-          },
-          user_id: {
-            type: 'string',
-            description: 'ID пользователя',
-          },
-          count: {
-            type: 'number',
-            description: 'Количество постов для получения (по умолчанию 20)',
-            default: 20,
-          },
-          offset: {
-            type: 'number',
-            description: 'Смещение от начала (по умолчанию 0)',
-            default: 0,
-          },
-        },
-      },
-    },
-    {
-      name: 'search_posts',
-      description: 'Ищет посты по ключевому слову',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          query: {
-            type: 'string',
-            description: 'Поисковый запрос',
-            required: true,
-          },
-          group_id: {
-            type: 'string',
-            description: 'ID группы для поиска',
-          },
-          count: {
-            type: 'number',
-            description: 'Количество результатов',
-            default: 20,
-          },
-          offset: {
-            type: 'number',
-            description: 'Смещение от начала',
-            default: 0,
-          },
-        },
-        required: ['query'],
-      },
-    },
-    {
-      name: 'get_group_info',
-      description: 'Получает информацию о группе ВКонтакте',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          group_id: {
-            type: 'string',
-            description: 'ID группы',
-            required: true,
-          },
-        },
-        required: ['group_id'],
-      },
-    },
-    {
-      name: 'get_user_info',
-      description: 'Получает информацию о пользователе ВКонтакте',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          user_id: {
-            type: 'string',
-            description: 'ID пользователя',
-            required: true,
-          },
-        },
-        required: ['user_id'],
-      },
-    },
-  ];
-
-  tools.forEach(tool => {
-    res.write(`data: ${JSON.stringify({
-      jsonrpc: '2.0',
-      id: null,
-      method: 'notifications/toolInfo',
-      params: {
-        tool: tool
-      }
-    })}\n\n`);
-  });
-
-  // Keepalive пинги каждые 30 секунд
-  const keepalive = setInterval(() => {
-    res.write(':keepalive\n\n');
-  }, 30000);
-
-  req.on('close', () => {
-    clearInterval(keepalive);
-    console.log('Client disconnected from SSE (alias /sse)');
-  });
+  // Единая точка входа для SSE — перенаправляем на /mcp/sse
+  res.redirect(307, '/mcp/sse');
 });
 
 // POST обработчик для /sse (Make.com)
@@ -949,59 +808,12 @@ app.get('/health', (req, res) => {
 
 // Startup probe для Railway
 app.get('/', (req, res) => {
-  const accept = String(req.headers['accept'] || '');
-  if (accept.includes('text/event-stream')) {
-    console.log('Client connected to SSE (root /)');
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.flushHeaders();
-
-    res.write(`data: ${JSON.stringify({
-      jsonrpc: '2.0',
-      id: null,
-      method: 'notifications/serverInfo',
-      params: {
-        name: 'vkontakte-mcp-server',
-        version: '1.0.0',
-        description: 'MCP server for VKontakte (VK.com) integration',
-        transport: 'SSE + HTTP',
-        capabilities: ['tools']
-      }
-    })}\n\n`);
-
-    const tools = [
-      { name: 'post_to_wall' },
-      { name: 'get_wall_posts' },
-      { name: 'search_posts' },
-      { name: 'get_group_info' },
-      { name: 'get_user_info' },
-    ];
-    tools.forEach(tool => {
-      res.write(`data: ${JSON.stringify({
-        jsonrpc: '2.0',
-        id: null,
-        method: 'notifications/toolInfo',
-        params: { tool }
-      })}\n\n`);
-    });
-
-    // Keepalive пинги каждые 30 секунд
-    const keepalive = setInterval(() => {
-      res.write(':keepalive\n\n');
-    }, 30000);
-
-    req.on('close', () => {
-      clearInterval(keepalive);
-      console.log('Client disconnected from SSE (root /)');
-    });
-    return;
-  }
-
+  // Корневой роут — только health/info. SSE доступен на /mcp/sse
   res.json({
     status: 'ready',
     message: 'VKontakte MCP Server is running',
     timestamp: new Date().toISOString(),
+    mcp_endpoints: { sse: '/mcp/sse', api: '/mcp/api' },
     port: PORT
   });
 });

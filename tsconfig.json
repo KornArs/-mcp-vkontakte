@@ -13,6 +13,6 @@
     "declarationMap": true,
     "sourceMap": true
   },
-  "include": ["src/cursor-mcp-server.ts", "src/make-mcp-server.ts", "src/simple-http-server.ts", "src/vk-api.ts", "src/types.ts"],
-  "exclude": ["node_modules", "dist", "src/http-server.ts", "src/index.ts"]
+  "include": ["src/make-mcp-server.ts", "src/vk-api.ts"],
+  "exclude": ["node_modules", "dist"]
 }

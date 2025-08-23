@@ -1395,6 +1395,193 @@ app.post('/n8n/webhook/:event', async (req, res, next) => {
   }
 });
 
+// ============================
+// MAKE.COM WEBHOOK ЭНДПОИНТЫ
+// ============================
+
+// POST /make/webhook/vk_event - прямой webhook для Make.com
+app.post('/make/webhook/vk_event', async (req, res, next) => {
+  try {
+    const webhookSecret = req.headers['x-webhook-secret'];
+    
+    // Проверка секрета (опционально)
+    if (process.env.MAKE_WEBHOOK_SECRET && webhookSecret !== process.env.MAKE_WEBHOOK_SECRET) {
+      return sendErr(res, 401, 'AUTH_FAILED', 'Invalid webhook secret');
+    }
+
+    const { event_type, data } = req.body;
+    console.log(`Make.com webhook event: ${event_type}`, data);
+
+    // Отправляем событие в Make.com
+    res.json({
+      success: true,
+      event: event_type,
+      timestamp: new Date().toISOString(),
+      data: data
+    });
+
+  } catch (error: any) {
+    console.error('Make.com webhook error:', error);
+    next(error);
+  }
+});
+
+// POST /make/webhook/new_comment - webhook для новых комментариев
+app.post('/make/webhook/new_comment', async (req, res, next) => {
+  try {
+    const webhookSecret = req.headers['x-webhook-secret'];
+    
+    if (process.env.MAKE_WEBHOOK_SECRET && webhookSecret !== process.env.MAKE_WEBHOOK_SECRET) {
+      return sendErr(res, 401, 'AUTH_FAILED', 'Invalid webhook secret');
+    }
+
+    const { comment_id, post_id, user_id, text, group_id } = req.body;
+    
+    console.log(`New comment webhook:`, { comment_id, post_id, user_id, text, group_id });
+
+    // Здесь можно добавить логику обработки комментария
+    // Например, автоматический ответ, модерация и т.д.
+
+    res.json({
+      success: true,
+      event: 'new_comment',
+      comment_id,
+      post_id,
+      user_id,
+      text,
+      group_id,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error: any) {
+    console.error('New comment webhook error:', error);
+    next(error);
+  }
+});
+
+// POST /make/webhook/new_post - webhook для новых постов
+app.post('/make/webhook/new_post', async (req, res, next) => {
+  try {
+    const webhookSecret = req.headers['x-webhook-secret'];
+    
+    if (process.env.MAKE_WEBHOOK_SECRET && webhookSecret !== process.env.MAKE_WEBHOOK_SECRET) {
+      return sendErr(res, 401, 'AUTH_FAILED', 'Invalid webhook secret');
+    }
+
+    const { post_id, text, user_id, group_id, attachments } = req.body;
+    
+    console.log(`New post webhook:`, { post_id, text, user_id, group_id, attachments });
+
+    // Здесь можно добавить логику обработки поста
+    // Например, автоматические действия, аналитика и т.д.
+
+    res.json({
+      success: true,
+      event: 'new_post',
+      post_id,
+      text,
+      user_id,
+      group_id,
+      attachments,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error: any) {
+    console.error('New post webhook error:', error);
+    next(error);
+  }
+});
+
+// POST /make/webhook/new_message - webhook для новых личных сообщений
+app.post('/make/webhook/new_message', async (req, res, next) => {
+  try {
+    const webhookSecret = req.headers['x-webhook-secret'];
+    
+    if (process.env.MAKE_WEBHOOK_SECRET && webhookSecret !== process.env.MAKE_WEBHOOK_SECRET) {
+      return sendErr(res, 401, 'AUTH_FAILED', 'Invalid webhook secret');
+    }
+
+    const { message_id, user_id, text, attachments } = req.body;
+    
+    console.log(`New message webhook:`, { message_id, user_id, text, attachments });
+
+    // Здесь можно добавить логику обработки сообщения
+    // Например, автоматические ответы, чат-бот и т.д.
+
+    res.json({
+      success: true,
+      event: 'new_message',
+      message_id,
+      user_id,
+      text,
+      attachments,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error: any) {
+    console.error('New message webhook error:', error);
+    next(error);
+  }
+});
+
+// ============================
+// VK CALLBACK API ЭНДПОИНТЫ
+// ============================
+
+// POST /vk/callback - VK Callback API для получения уведомлений
+app.post('/vk/callback', async (req, res, next) => {
+  try {
+    const { type, object, group_id } = req.body;
+    
+    console.log(`VK Callback API event: ${type}`, { object, group_id });
+
+    // Обработка различных типов событий VK
+    switch (type) {
+      case 'wall_post_new':
+        // Новая запись на стене
+        console.log('New wall post:', object);
+        break;
+        
+      case 'wall_reply_new':
+        // Новый комментарий
+        console.log('New wall comment:', object);
+        break;
+        
+      case 'like_add':
+        // Новый лайк
+        console.log('New like:', object);
+        break;
+        
+      case 'group_join':
+        // Новый участник группы
+        console.log('New group member:', object);
+        break;
+        
+      default:
+        console.log('Unknown VK event type:', type);
+    }
+
+    // Отвечаем VK что получили событие
+    res.json({ success: true });
+
+  } catch (error: any) {
+    console.error('VK Callback API error:', error);
+    next(error);
+  }
+});
+
+// GET /vk/callback - подтверждение Callback API
+app.get('/vk/callback', (req, res) => {
+  const { code } = req.query;
+  
+  if (code) {
+    // VK проверяет доступность сервера
+    res.send(code);
+  } else {
+    res.status(400).send('Missing code parameter');
+  }
+});
+
 // GET /n8n/poll/:resource - polling для n8n
 app.get('/n8n/poll/:resource', async (req, res, next) => {
   try {
@@ -1462,22 +1649,32 @@ app.get('/health', (req, res) => {
     version: '1.0.0',
     environment: process.env.NODE_ENV || 'development',
     port: PORT,
-    endpoints: {
-      mcp: {
-        'POST /mcp': 'JSON-RPC (initialize, tools/list, tools/call)',
-        'GET /mcp': 'SSE notifications (Streamable HTTP)',
-        'DELETE /mcp': 'Close session'
-      },
-      n8n: {
-        'POST /n8n/webhook/:event': 'Webhook events',
-        'GET /n8n/poll/:resource': 'Polling resources'
-      },
-      service: {
-        'GET /health': 'Health check',
-        'GET /mcp/info': 'Server information',
-        'GET /mcp/tools': 'List all tools'
+          endpoints: {
+        mcp: {
+          'POST /mcp': 'JSON-RPC (initialize, tools/list, tools/call)',
+          'GET /mcp': 'SSE notifications (Streamable HTTP)',
+          'DELETE /mcp': 'Close session'
+        },
+        n8n: {
+          'POST /n8n/webhook/:event': 'Webhook events',
+          'GET /n8n/poll/:resource': 'Polling resources'
+        },
+        make: {
+          'POST /make/webhook/vk_event': 'General VK events',
+          'POST /make/webhook/new_comment': 'New comments',
+          'POST /make/webhook/new_post': 'New posts',
+          'POST /make/webhook/new_message': 'New messages'
+        },
+        vk: {
+          'POST /vk/callback': 'VK Callback API',
+          'GET /vk/callback': 'VK Callback verification'
+        },
+        service: {
+          'GET /health': 'Health check',
+          'GET /mcp/info': 'Server information',
+          'GET /mcp/tools': 'List all tools'
+        }
       }
-    }
   });
 });
 

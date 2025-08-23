@@ -44,4 +44,3 @@ coverage/
 *.local
 
 # Тестовые файлы
-test-post.json

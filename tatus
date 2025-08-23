@@ -1,5 +1,0 @@
-[33m8a0da11[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m feat(vk): media upload (photo/video) and API v5.199 logging, tools fixes
-[33m7abafb6[m feat: Enhance token extraction logging
-[33m2d4e042[m feat: Add extensive logging for /mcp/api endpoint
-[33m910176b[m fix: Make.com MCP connection - handle notifications/initialized and improve SSE format
-[33mce84f42[m fix: Make.com connection - improve SSE and POST / endpoint logging
